@@ -20,8 +20,7 @@ app.include_router(StockRouters.router)
 app.include_router(ComparisonRouters.router)
 app.include_router(AdminRouter.router)
  
- 
- 
+
  
 @app.get("/CalculateForwardPe/{ticker}" , tags = ["Ratios And Forward Comparables"])
 def FPE(ticker: str, db: Session = Depends(get_db)):
