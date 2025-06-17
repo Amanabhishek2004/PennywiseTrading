@@ -4,7 +4,17 @@
 
 ## 🌟 Project Overview
 
-**Pennywise** is a full-stack, AI-driven stock analytics platform designed to empower investors with actionable insights, advanced analytics, and seamless user experience. The project integrates real-time data ingestion, technical and fundamental analysis, machine learning, and a modern web interface to deliver a one-stop solution for stock market research and decision-making.
+**Pennywise** is a full-stack, ML-driven stock analytics platform designed to empower investors with actionable insights, advanced analytics, and seamless user experience. The project integrates real-time data ingestion, technical and fundamental analysis, machine learning, and a modern web interface to deliver a one-stop solution for stock market research and decision-making.
+
+---
+
+## 🖼️ Screenshots
+
+| Dashboard | Peer Comparison | Candlestick Patterns | Financials View | Channels & Trendlines | 
+|-----------|-----------------|---------------------|-----------------|----------------------|---------------------|
+| ![Dashboard Screenshot](images/dashboard.png) | ![Peer Comparison](images/peer_comparison.png) | ![Candlestick Patterns](images/candlestick.png) | ![Financials](images/financials.png) | ![Channels](images/channels.png) |
+
+> _Replace the image paths above with your actual screenshots in the `images/` folder._
 
 ---
 
@@ -24,7 +34,9 @@
 - **Support & Resistance Detection:**  
   - Dynamic calculation and updating of support/resistance levels with retest tracking and pattern annotation.
 - **Channel & Trendline Generation:**  
-  - Automated detection of price channels and trendlines using regression and clustering.
+  - **Automatic detection and plotting of price channels (upper/lower) and trendlines** using regression and clustering, helping users visualize price boundaries and momentum.
+- **Divergence Strategy:**  
+  - **Automated detection of bullish and bearish divergences** between price and indicators like RSI or OBV, highlighting potential reversal points and trading opportunities.
 - **Indicator Suite:**  
   - Calculates RSI, OBV, and other technical indicators on-the-fly for multiple timeframes.
 
@@ -76,6 +88,9 @@
 - **Real-World Impact:** Built for actual investors, not just as a demo.
 - **Scalable & Maintainable:** Clean architecture, ready for production and further growth.
 - **Demonstrates Full-Stack Mastery:** Backend, frontend, data science, and DevOps—all in one project.
+- **Advanced Charting:**  
+  - **Channels and Trendlines** are automatically drawn on price charts, giving users a clear view of market structure.
+  - **Divergence Strategy** is visually highlighted, making it easy to spot high-probability trade setups.
 
 ---
 
@@ -94,6 +109,8 @@
 - **Dashboard:** Real-time market overview, technical and fundamental highlights.
 - **Peer Comparison:** Multi-stock, multi-metric comparison with visual cues.
 - **Candlestick Analysis:** Pattern detection and annotation on price charts.
+- **Channels & Trendlines:** Automatic channel and trendline drawing for market structure analysis.
+- **Divergence Detection:** Visual cues for bullish/bearish divergence between price and indicators.
 
 ---
 
@@ -106,9 +123,6 @@
 ## 👨‍💻 Ready to Demo!
 
 - **Clone, run, and explore!**
-- **Ask me about any part of the stack, and I can walk you through the code, logic, and design
-
-> _“The stock market is filled with individuals who know the price of everything, but the value of nothing.”_  
-> — Philip Fisher
+- **Ask me about any part of the stack, and I can walk you through the code, logic, and design decisions.**
 
 ---
