@@ -42,7 +42,6 @@
 
 ### 3. **Deep Fundamental Analysis**
 - **Financial Statement Parsing:**  
-  - Scrapes and parses quarterly and annual financials from sources like Screener.in.
   - Extracts and structures key metrics: Total Assets, Equity, Debt, Cash, Retained Earnings, etc.
 - **Key Ratio Computation:**  
   - Calculates ROIC, equity capital, invested capital, and other advanced ratios.
