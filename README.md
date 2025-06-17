@@ -16,7 +16,7 @@
 
 | Financials View | Channels & Trendlines | 
 |-----------------|----------------------|---------------------|
-| ![Financials](images/financial.jpg) | ![Channels](images/Channels.jpg) | 
+| ![Financials](images/financial.jpg) | ![Channels](images/Channel.png) | 
 
 ## 🧠 What Makes Pennywise Stand Out?
 
