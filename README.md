@@ -15,7 +15,7 @@
 | ![Dashboard Screenshot](images/peercomparision2.jpg) | ![Peer Comparison](images/peercomparision.jpg) | ![Candlestick Patterns](images/candlesticksChart.jpg) |
 
 | Financials View | Channels & Trendlines | 
-|-----------------|----------------------|---------------------|
+|-----------------|----------------------|
 | ![Financials](images/financial.jpg) | ![Channels](images/Channel.png) | 
 
 ## 🧠 What Makes Pennywise Stand Out?
