@@ -9,6 +9,7 @@ from Database.databaseconfig import Base, engine, get_db
 from Database.models import Stock 
 from uuid import uuid4
 from Stock.Fundametals.Stock import *  
+from Stock.Fundametals.StockComparables import *
 from Stock.Fundametals.StockDIctScehma import *
 from Stock.Fundametals.StockCashFlow import  *
 from Stock.Fundametals.StockForwardRatios import *
@@ -45,30 +46,35 @@ app.add_middleware(
 @app.get("/CalculateGrowthRatios/{ticker}" , tags = ["Ratios And Forward Comparables"])
 def FPE(ticker: str, db: Session = Depends(get_db)):
       
-      forwardpe = CalculateForwardPe(ticker , db)
-      Pegs = CalculateMedianpe(ticker)
+      forwardpe = calculate_forward_pe(ticker , db)
+    #   Pegs = CalculateMedianpe(ticker)
  
-      return {
-          "Ticker" : ticker , 
-          "forwardpe" : forwardpe , 
-          "Peg" : Pegs["PEG"].value, 
-          "TTMPE" : Pegs["TTMPE"]
-      }
+      return {"ForwardPe" : forwardpe  }
+def parse_data(data_string):
 
+    import ast
+    if not data_string:
+        return []
+    
+    try:
+        parsed_list = ast.literal_eval(data_string)  # Convert string to list
+        return [float(x) if x != 'nan' else float('nan') for x in parsed_list]
+    except (ValueError, SyntaxError):
+        raise ValueError(f"Invalid data format: {data_string}")
 
-@app.get("/CashflowMidean/{ticker}" , tags = ["Ratios And Forward Comparables"])
+@app.get("/AllRatios/{ticker}" , tags = ["Ratios And Forward Comparables"])
 def PCF(ticker:str , db:Session =  Depends(get_db) ) :
            '''
            We Are utilizing Free Cashflow To Firm And Calculating The Ratio Price /FCFF
            
            '''
-           FCFF = CalculateFCFF(ticker , db) 
            stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-           marketcap = stock.marketCap 
+           if not stock:
+                return {"error": "Stock not found"}
+           ratios = calculate_ratios_from_annual_data(stock)
+           return ratios
 
-           return {
-           "PFCF" : marketcap / FCFF[0]
-           }
+
 
 
 @app.get("/Returns/{ticker}" , tags = ["Ratios And Forward Comparables"])

@@ -23,39 +23,26 @@ import numpy as np
 
 
 def CalculateRSI(ticker, db, period):
-    """
-    Calculate and update the RSI (Relative Strength Index) for a given stock.
-    
-    Args:
-        ticker (str): Stock ticker symbol.
-        db (Session): Database session.
-        period (str): Period ("1m" or "1d").
-    
-    Returns:
-        dict: Contains RSI signal, current RSI, region, trend slope, and intercept.
-    """
-    try:
-        # Fetch stock data
+
+    # try:
+        # Fetch stock data 
+        print("running")
         stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
         if not stock:
             print(f"No stock named {ticker}")
             return
 
         # Fetch price data based on the period
-        price_query = (
-            db.query(PriceData.close_price)
-            .filter(
+        price_query =( db.query(PriceData).filter(
                 PriceData.stock_id == stock.id,
                 PriceData.period == period
-            )
-            .order_by(PriceData.date.desc())
-        )
-        prices = pd.Series([price.close_price for price in price_query.all()])
-        rsi_values = [price.Rsi for price in price_query.all()]
+            ).all())
+        prices = pd.Series([price.close_price for price in price_query])
+        rsi_values = pd.Series([price.RSI for price in price_query])
         if len(prices) < 14:
             print("Not enough data to calculate RSI.")
             return
-
+        print(rsi_values)   
         # Calculate RSI
         current_rsi = rsi_values.iloc[-1]
         if pd.isna(current_rsi):
@@ -63,29 +50,19 @@ def CalculateRSI(ticker, db, period):
             return
 
         # Determine trendline and region
-        valid_rsi = rsi_values[-5:].dropna()
+        valid_rsi = rsi_values[-5:]
         if len(valid_rsi) < 2:
             print("Not enough data to calculate RSI trendline.")
             return
 
-        trendline = np.polyfit(range(len(valid_rsi)), valid_rsi, 1)
-        m, b = trendline[0], trendline[1]
+        trendline , m , b  = CreateTrendline(valid_rsi)
 
-        region = "Neutral"
-        signal = None
 
-        if b + m * (len(valid_rsi) - 1) > current_rsi:  # RSI below trendline
-            if current_rsi > 70:
-                region = "Overbought"
-            elif current_rsi < 30:
-                region = "Oversold"
-            signal = f"RSI crossed below the {'Positive' if m > 0 else 'Negative'} trendline"
-        else:  # RSI above trendline
-            if current_rsi > 70:
-                region = "Overbought"
-            elif current_rsi < 30:
-                region = "Oversold"
-            signal = f"RSI crossed above the {'Negative' if m < 0 else 'Positive'} trendline"
+        # Current RSI as scalar
+        current_rsi = float(rsi_values.iloc[-1])
+
+        # Trendline comparison
+        comparison_value = b + m * (len(valid_rsi) - 1)
 
         # Update or create the StockTechnicals entry in the database
         technical = db.query(StockTechnicals).filter(
@@ -111,36 +88,24 @@ def CalculateRSI(ticker, db, period):
         db.commit()
 
         return {
-            "Signal": signal,
             "Current RSI": current_rsi,
-            "Region": region,
             "Trend Slope": m,
             "Intercept": b,
         }
 
-    except Exception as e:
-        print(f"Error calculating RSI: {e}")
-        return
+    # except Exception as e:
+    #     print(f"Error calculating RSI: {e}")
+    #     return
 
 
 
 from datetime import datetime, timedelta, timezone
 
 def CalculateRSIpeakMaxmin(db, close_price, currentrsi, date, period, interval=15):
-    """
-    Check if RSI is forming a peak at higher levels compared to previous intervals.
-    
-    Args:
-        db (Session): Database session for queries.
-        close_price (float): Current close price of the stock.
-        currentrsi (float): Current RSI value.
-        date (str): Current date as an ISO-formatted string.
-        period (str): Timeframe for analysis.
-        interval (int): Number of periods to check.
+ 
+    # Check if RSI is forming a peak at higher levels compared to previous intervals.
 
-    Returns:
-        bool: True if RSI forms a peak, False otherwise.
-    """
+    print(currentrsi)    
     # Define the IST timezone offset
     ist_offset = timezone(timedelta(hours=5, minutes=30))
 
@@ -213,4 +178,3 @@ TRACK THE RSI TREND FOR LAST5 DAYS AND STORE THEM LIKE THIS  {
 "TREND" : , 
 }
 """
-

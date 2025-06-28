@@ -22,7 +22,9 @@ router = APIRouter(prefix="/Stock", tags=["Technical Routes"])
 
 class InputData(BaseModel):
     ticker: str
-    period : int  = 20  
+    period : str = "1m"
+    timeperiod : int = 30     
+
 
 class responseData(BaseModel):
     channels: List[float] = []
@@ -38,19 +40,18 @@ class ChannelResponse(BaseModel):
     LowerChannelData: ChannelData
 
 @router.post("/StockChannels/", response_model=ChannelResponse) 
-def GetStockChannels(input_data: InputData, db: Session = Depends(get_db)):
+def GetStockChannels(input_data: InputData, db: Session = Depends(get_db) ):
     """
     Get stock channels for a given ticker.
     """
     try:
-        channels = CreateChannel(input_data.ticker, input_data.period)  # Example time period from input
+        channels = CreateChannel(db , Ticker=input_data.ticker, period =input_data.period , timeperiod=input_data.timeperiod)  # Example time period from input
         print(channels)
         return channels
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) 
 
 
-``
 @router.get("/GetSuppourtResistance" , response_model=dict )
 def GetSupportResistance(ticker: str, db: Session = Depends(get_db) , period :str = "1d"):
     """
@@ -69,7 +70,7 @@ def GetSupportResistance(ticker: str, db: Session = Depends(get_db) , period :st
 
 
 @router.post("/SuppourtResistance" , response_model=dict )
-def CreateSuppourtResistances(ticker: str, db: Session = Depends(get_db) , period :str = "1d"):
+def CreateSuppourtResistances(ticker: str, db: Session = Depends(get_db) , period :str = "1d"):  
     data = MakeStrongSupportResistance(ticker , db , period)
     return {"detail" : "success"}
 
@@ -89,12 +90,82 @@ def getallPrices(ticker , period , db: Session = Depends(get_db)) :
         db.query(PriceData).join(Stock)
         .filter(PriceData.period == period, Stock.Ticker == ticker)
         .all()
-    )
+    )      
         return prices
 
-@router.get("/GenerateSignals/")
-def GenerateBuySellSignals(db: Session = Depends(get_db)) : 
-      ticker = "20MICRONS"
-      signal =  GenrateSignals(ticker , db , "1d") 
-      return signal
- 
+
+
+
+from pydantic import BaseModel
+from typing import Optional, Dict, Any, List
+
+class RSISignalSchema(BaseModel):
+    Buy: bool
+    Sell: bool
+    StrongSell: bool
+    StrongBuy: bool
+    rsipeak: Optional[float]
+    Rsi: Optional[float]
+
+class MASignalSchema(BaseModel):
+    Buy: bool
+    Sell: bool
+
+class VolumeSignalSchema(BaseModel):
+    peakDIv: Optional[bool]
+    Suppourt: Optional[float]
+    Resistance: Optional[float]
+    normalizedobv: Optional[float]
+    CurrentObv: Optional[float]
+    lowerchannel: Optional[float]
+
+class SignalResponseSchema(BaseModel):
+    Signal: Dict[str, Any]
+    message: Optional[str]
+    Support: Optional[float]
+    PriceAction: Optional[Any]
+
+
+
+
+
+
+@router.get("/GenerateSignals/{ticker}", response_model=SignalResponseSchema)
+def GenerateBuySellSignals(ticker: str, db: Session = Depends(get_db), period: str = "1d"):
+    prices = (
+        db.query(PriceData).join(Stock)
+        .filter(PriceData.period == period, Stock.Ticker == ticker)
+        .all())
+    signal = GenrateSignals(ticker, db, period)
+    print(signal)
+    stock_data = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    currentprice = float(stock_data.CurrentPrice)
+    tolerance = 0.008 * currentprice
+    support = (
+        db.query(SupportData).filter(
+            SupportData.stock_id == stock_data.id,
+            SupportData.period == period,
+            SupportData.Price >= currentprice - tolerance,
+            SupportData.Price <= currentprice + tolerance
+        ).first())
+    message = None
+    if support and signal["RSI Signal"]["Rsi"] < 35:
+        message = f"Buy at {float(support.Price)}"
+    if signal["RSI Signal"]["rsipeak"] and signal["RSI Signal"]["Rsi"] < 35:
+        message = f"Buy at {currentprice} or {float(support.Price) if support else None}"
+    if signal["RSI Signal"]["Sell"] and signal["MA Signal"]["Sell"]:
+        message = f"Sell at {currentprice}"
+
+    patterdata = IdentifyDoubleCandleStickPatterns(prices[-2:], period)
+    patterdata2 = IdentifySingleCandleStickPattern(prices[-1], period)
+    def to_py(val):
+        # Convert numpy types to Python native types
+        if hasattr(val, "item"):
+            return val.item()
+        return val
+    return SignalResponseSchema(
+        Signal={k: {ik: to_py(iv) for ik, iv in v.items()} for k, v in signal.items()},
+        message=message,
+        Support=float(support.Price) if support else None,
+        PriceAction=[to_py(patterdata), to_py(patterdata2)]
+    )

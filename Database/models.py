@@ -45,6 +45,7 @@ class EarningMetric(Base):
     __tablename__ = "EarningMetrics"
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     stock_id = Column(String, ForeignKey("Stocks.id", ondelete="SET NULL"), nullable=True)
+    Date = Column(String)
     OperatingRevenue = Column(String)
     EBIT_cagr = Column(Float)
     EBITDA = Column(String)
@@ -75,7 +76,7 @@ class Comparables(Base):
     dividendYield = Column(Float)
     dividendRate = Column(Float)
     fiveYearAvgDividendYield = Column(Float)
-    payoutRatio = Column(Float)
+    payoutRatio = Column(String)
     stock = relationship("Stock", back_populates="comparables")
 
 # Expenses Table
@@ -84,10 +85,10 @@ class Expenses(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     stock_id = Column(String, ForeignKey("Stocks.id", ondelete="SET NULL"), nullable=True)
     CapitalExpenditure_cagr = Column(Float)
-    dividendPayoutratio = Column(Float)
+    dividendPayoutratio = Column(String)
+    TaxRate = Column(String)
     CapitalExpenditure = Column(String)
     InterestExpense_cagr = Column(Float)
-    OperatingMargin = Column(String)
     CurrentDebt_cagr = Column(Float)
     EBIT = Column(String)
     Operating_Expense = Column(String)
@@ -101,6 +102,9 @@ class Financials(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     stock_id = Column(String, ForeignKey("Stocks.id", ondelete="SET NULL"), nullable=True)
     RetainedEarnings_cagr = Column(Float)
+    Date_BalanceSheet = Column(String)
+    EquityCapital = Column(String)
+    Date_cashflow = Column(String)
     RetainedEarnings = Column(String)
     UnusualExpense = Column(String)
     DepreciationAmortization = Column(String)
@@ -113,6 +117,7 @@ class Financials(Base):
     FixedAssets = Column(String)
     TotalLiabilities = Column(String)
     TotalDebt = Column(String)
+    ROCE = Column(String)
     stock = relationship("Stock", back_populates="financials")
 
 # ValuationMetrics Table
@@ -123,7 +128,7 @@ class ValuationMetrics(Base):
     ROE = Column(Float)
     FCFF = Column(String, nullable=True)
     ROA = Column(Float)
-    ROIC = Column(Float)
+    ROIC = Column(String)
     WACC = Column(Float)
     COD = Column(Float)
     ICR = Column(Float)
@@ -136,7 +141,9 @@ class Days(Base):
     stock_id = Column(String, ForeignKey("Stocks.id", ondelete="SET NULL"), nullable=True)
     InventoryDays = Column(String)
     DebtorDays = Column(String)
+    Date = Column(String)
     WorkingCapitalDays = Column(String)
+    DaysPayable  = Column(String)
     CashConversionCycle = Column(String)
     stock = relationship("Stock", back_populates="Days")
 
@@ -209,7 +216,6 @@ class Quaterlyresult(Base):
     stock_id = Column(String, ForeignKey("Stocks.id", ondelete="SET NULL"), nullable=True)
     ticker = Column(String, nullable=False, index=True)
     Date = Column(String, nullable=False, index=True)
-    # Quarterly Columns
     Sales_Quaterly = Column(String, nullable=True)
     Expenses_Quaterly = Column(String, nullable=True)
     OperatingProfit_Quaterly = Column(String, nullable=True)

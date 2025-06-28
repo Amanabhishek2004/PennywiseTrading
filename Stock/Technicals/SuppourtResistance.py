@@ -34,34 +34,7 @@ def UpdateTheChannelsdata(Ticker, db):
         print("Error in UpdateTheChannelsdata: ", e)
 
 
-['ticker', 'epsTrailingTwelveMonths', 'OperatingRevenue', 'OperatingProfit',
-       'Operating_Expense', 'DividendPayoutratio', 'NetIncome',
-       'TaxRateForCalaculation', 'Interest_Expense',
-       'DepreciationAmortization', 'OperatingMargin', 'EBIT', 'UnusualExpense',
-       'TotalDebt', 'TotalEquityCapital', 'RetainedEarnings', 'TotalAssets',
-       'CWIP', 'Investments', 'FixedAssets', 'TotalLiabilities',
-       'CashfromInvestingActivityies', 'CashFromOperatingActivities',
-       'CashfromFinancingActivities', 'DebtorDays', 'InventoryDays',
-       'WorkingCapitalDays', 'CashConversionCycle', 'ReturnOnCapitalEmployed',
-       'CompanyName', 'Marketcap', 'COD', 'ROE', 'WorkingCapital', 'ICR',
-       'FCFF', 'EBITDA', 'ROA', 'CAPEX', 'longName', 'industry', 'sector',
-       'totalCash', 'industryDisp', 'beta', 'floatShares', 'sharesOutstanding',
-       'regularMarketPrice', 'longBusinessSummary',
-       'epsTrailingTwelveMonths_growth', 'OperatingRevenue_growth',
-       'OperatingProfit_growth', 'Operating_Expense_growth',
-       'NetIncome_growth', 'Interest_Expense_growth',
-       'DepreciationAmortization_growth', 'EBIT_growth',
-       'UnusualExpense_growth', 'TotalDebt_growth',
-       'TotalEquityCapital_growth', 'RetainedEarnings_growth',
-       'TotalAssets_growth', 'CWIP_growth', 'Investments_growth',
-       'FixedAssets_growth', 'TotalLiabilities_growth',
-       'CashfromInvestingActivityies_growth',
-       'CashFromOperatingActivities_growth',
-       'CashfromFinancingActivities_growth', 'DebtorDays_growth',
-       'InventoryDays_growth', 'WorkingCapitalDays_growth',
-       'CashConversionCycle_growth', 'ReturnOnCapitalEmployed_growth',
-       'WorkingCapital_growth', 'FCFF_growth', 'EBITDA_growth',
-       'CAPEX_growth']
+
 
 
 
@@ -76,8 +49,7 @@ def UpdateSuppourt(Ticker, db, period):
     last_short_term_price = short_termprices[-1]
     data = IdentifySingleCandleStickPattern(last_short_term_price, period)
     if not data : 
-        data = IdentifyDoubleCandleStickPatterns(short_termprices, period)  
-    
+        data = IdentifyDoubleCandleStickPatterns(short_termprices[-2 : ], period)  
     
     if data and data.get("Suppourt"):
     #   if suppourt already exixts 
@@ -100,7 +72,7 @@ def UpdateSuppourt(Ticker, db, period):
             )
             db.add(suppourt)    
     if data and data.get("Resistance"):
-        #   if resistance already exixts 
+        #   if resistance already exists 
         resistance = db.query(SupportData).filter(
             SupportData.stock_id == stock_data.id,
             SupportData.period == period,
@@ -122,19 +94,19 @@ def UpdateSuppourt(Ticker, db, period):
     
     db.commit()
     # filter the supports in increasing order 
-    supports = (
+    support = (
         db.query(SupportData)
         .filter(
             SupportData.stock_id == stock_data.id,
             SupportData.period == period,
            SupportData.Price <= stock_data.CurrentPrice
         )
-        .order_by(SupportData.Price.asc())
+        .order_by(SupportData.Price.desc())
         .first()
     )
       
     # filter the resistances in decreasing order
-    resistances = (
+    resistance = (
         db.query(SupportData)
         .filter(
             SupportData.stock_id == stock_data.id,
@@ -145,19 +117,19 @@ def UpdateSuppourt(Ticker, db, period):
         .first()
     )
 
-    print(stock_data.CurrentPrice)
+    # print(stock_data.CurrentPrice)
     
     
 
     return {
-        "Suppourt": supports.Price,
-        "Resistance": resistances.Price,
-        "Suppourt_pattern": supports.Pattern,
-        "Resistance_pattern": resistances.Pattern,
+        "Support": support.Price if support else None,
+        "Resistance": resistance.Price if resistance else None,
+        "Support_pattern": support.Pattern if support else None,
+        "Resistance_pattern": resistance.Pattern if resistance else None,
         "Ticker": Ticker,
-        "Suppourttime": supports.timestamp , 
-        "Resistancetime"  : resistances.timestamp, 
-        "period": period,
+        "Support_time": support.timestamp if support else None,
+        "Resistance_time": resistance.timestamp if resistance else None,
+        "Period": period,
     }
 
 def MakeStrongSupportResistance(ticker, db, period):

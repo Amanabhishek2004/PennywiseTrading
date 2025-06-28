@@ -6,7 +6,7 @@ from .Meanreversion import *
 # RSI DIVERGANCE  -- SELL OR BUY BUT WITH RSI BELOW 30 OR ABOVE 70 STRONG SIGNALS
 #  sell at resistance and buy at suppourt
 
-
+from sqlalchemy import func, desc
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
@@ -22,6 +22,7 @@ def GenrateSignals(ticker, db, period):
         .filter(PriceData.ticker == ticker, PriceData.period == period)
         .all()
     )
+  
     closingprices = [price.close_price for price in Prices]
     obvs = [price.OnbalanceVolume for price in Prices[:-1]]
 
@@ -85,12 +86,14 @@ def GenrateSignals(ticker, db, period):
         "Sell": False,
         "StrongSell": False,
         "StrongBuy": False,
-        "rsipeak": rsipeak,
+        "rsipeak": rsipeak, 
+        "Rsi" : currentrsi
     }
     masignal = {
         "Buy": DMA20 > DMA50 if DMA20 and DMA50 else False,
         "Sell": DMA50 > DMA20 if DMA20 and DMA50 else False,
     }
+    #  create volume profiles        
 
     if lowerchannelslope > 0:
         if not rsipeak and rsislope < 0 and currentrsi > 70:
@@ -111,13 +114,13 @@ def GenrateSignals(ticker, db, period):
     volumepeaks = CalculateVolumepeakmaxmin(
         db, datetime.now().isoformat(), ticker, period, 20
     )
-    print(volumepeaks)
     volumesignal = {
         "peakDIv": (lowervaolumechannel) * (lowerchannelslope) > 0,
         "Suppourt": volumepeaks.get("min") if volumepeaks else None,
         "Resistance": volumepeaks.get("max") if volumepeaks else None,
         "normalizedobv": normalized_volscore,
         "CurrentObv": Currentobv,
+        "lowerchannel" : lowervaolumechannel
     }
     return {
         "RSI Signal": Rsisignal,

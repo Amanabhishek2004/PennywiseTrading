@@ -20,7 +20,6 @@ router = APIRouter(prefix="/Stock", tags=["Stocks"])
 @router.get("/stocks", response_model=List[StockSchema])
 def get_all_stocks(db: Session = Depends(get_db)):
     stocks = db.query(Stock).all()[:20]
-    # Replace NaN values with None
     return stocks
 
 
@@ -56,10 +55,8 @@ def GetPeers(ticker: List[str], db: Session = Depends(get_db)):
          if not isinstance(stock, str):
              raise HTTPException(status_code=400, detail="Ticker must be a string")
          elif db.query(Stock).filter(Stock.Ticker == stock).first() is None:
-            data =  CreateStockDataBaseInstance(stock, db)
-            print(data)
-            if data.get("error"):
-                 raise HTTPException(status_code=400, detail=data["error"])
+
+                 raise HTTPException(status_code=400, detail="Stock not found")
      
      stocks = db.query(Stock).filter(Stock.Ticker.in_(ticker)).all()
      

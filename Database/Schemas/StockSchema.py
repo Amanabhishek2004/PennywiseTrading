@@ -77,10 +77,9 @@ class ComparablesSchema(BaseModel):
 class ExpensesSchema(BaseModel):
     id: str
     CapitalExpenditure_cagr: Optional[float]
-    dividendPayoutratio: Optional[float]
+    dividendPayoutratio: Optional[str]
     CapitalExpenditure: Optional[str]
     InterestExpense_cagr: Optional[float]
-    OperatingMargin: Optional[str]
     CurrentDebt_cagr: Optional[float]
     EBIT: Optional[str]
     Operating_Expense: Optional[str]
@@ -95,6 +94,7 @@ class FinancialsSchema(BaseModel):
     id: str
     RetainedEarnings_cagr: Optional[float]
     RetainedEarnings: Optional[str]
+    EquityCapital :Optional[str]
     UnusualExpense: Optional[str]
     DepreciationAmortization: Optional[str]
     WorkingCapital: Optional[str]
@@ -116,7 +116,7 @@ class ValuationMetricsSchema(BaseModel):
     ROE: Optional[float]
     FCFF: Optional[str]
     ROA: Optional[float]
-    ROIC: Optional[float]
+    ROIC: Optional[str]
     WACC: Optional[float]
     COD: Optional[float]
     ICR: Optional[float]
@@ -218,7 +218,6 @@ class StockSchema(BaseModel):
     financials: List[FinancialsSchema] = []
     metrics: List[ValuationMetricsSchema] = []
     Days: List[DaysSchema] = []
-    pricedata: List[PriceDataSchema] = []
     support: List[SupportDataSchema] = []
     quaterly_results: List[QuaterlyResultSchema] = []
     shareholdings: List[ShareholdingSchema] = []
