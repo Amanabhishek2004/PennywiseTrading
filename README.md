@@ -10,13 +10,13 @@
 
 ## 🖼️ Screenshots
 
-| Dashboard | Peer Comparison | Candlestick Patterns | Financials View | Channels & Trendlines | 
-|-----------|-----------------|---------------------|-----------------|----------------------|---------------------|
-| ![Dashboard Screenshot](images/dashboard.png) | ![Peer Comparison](images/peer_comparison.png) | ![Candlestick Patterns](images/candlestick.png) | ![Financials](images/financials.png) | ![Channels](images/channels.png) |
+| Peer Selection | Peer Comparison  | Candlestick Patterns |
+|-----------|----------------|---------------------|
+| ![Dashboard Screenshot](images/peercomparision2.jpg) | ![Peer Comparison](images/peercomparision.jpg) | ![Candlestick Patterns](images/candlesticksChart.jpg) |
 
-> _Replace the image paths above with your actual screenshots in the `images/` folder._
-
----
+| Financials View | Channels & Trendlines | 
+|-----------------|----------------------|
+| ![Financials](images/financial.jpg) | ![Channels](images/Channel.png) | 
 
 ## 🧠 What Makes Pennywise Stand Out?
 
@@ -42,7 +42,6 @@
 
 ### 3. **Deep Fundamental Analysis**
 - **Financial Statement Parsing:**  
-  - Scrapes and parses quarterly and annual financials from sources like Screener.in.
   - Extracts and structures key metrics: Total Assets, Equity, Debt, Cash, Retained Earnings, etc.
 - **Key Ratio Computation:**  
   - Calculates ROIC, equity capital, invested capital, and other advanced ratios.
