@@ -47,10 +47,10 @@ def CreateChannel(db, Ticker: str, timeperiod: int = 30, period: str = "1d"):
 
     if existing_channel:
         # Update the existing channel record
-        existing_channel.upper_channel_slope = upperlineslope
-        existing_channel.upper_channel_intercept = upperintercept
-        existing_channel.lower_channel_slope = lowerlineslope
-        existing_channel.lower_channel_intercept = lowerintercept
+        existing_channel.upper_channel_slope = float(upperlineslope)
+        existing_channel.upper_channel_intercept = float(upperintercept)
+        existing_channel.lower_channel_slope = float(lowerlineslope)
+        existing_channel.lower_channel_intercept = float(lowerintercept)
     else:
         # Create a new channel record
         channel = Channel(
@@ -70,7 +70,7 @@ def CreateChannel(db, Ticker: str, timeperiod: int = 30, period: str = "1d"):
     # Commit changes to the database
     try:
         db.commit()
-    except IntegrityError as e:
+    except InterruptedError as e:
         db.rollback()
         raise ValueError(f"Error saving or updating channel data: {str(e)}")
 

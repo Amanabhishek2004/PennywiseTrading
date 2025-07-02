@@ -71,9 +71,9 @@ def CalculateRSI(ticker, db, period):
         ).first()
 
         if technical:
-            technical.RsiSlope = m
-            technical.Rsiintercept = b
-            technical.CurrentRsi = current_rsi
+            technical.RsiSlope = float(m)
+            technical.Rsiintercept = float(b)
+            technical.CurrentRsi = float(current_rsi)
         else:
             technical = StockTechnicals(
                 stock_id=stock.id,
@@ -104,7 +104,7 @@ from datetime import datetime, timedelta, timezone
 def CalculateRSIpeakMaxmin(db, close_price, currentrsi, date, period, interval=15):
  
     # Check if RSI is forming a peak at higher levels compared to previous intervals.
-
+    
     print(currentrsi)    
     # Define the IST timezone offset
     ist_offset = timezone(timedelta(hours=5, minutes=30))

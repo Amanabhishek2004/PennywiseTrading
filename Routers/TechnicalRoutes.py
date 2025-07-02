@@ -13,7 +13,7 @@ from Stock.Technicals.rsiStrategy import *
 from Stock.Technicals.SuppourtResistance import *
 from Database.Schemas.PriceSchema import *
 from Stock.Technicals.SignalGenerator  import * 
-# Pennywise
+from Stock.Technicals.DynamicSuppourtResistance import * 
 
 
 router = APIRouter(prefix="/Stock", tags=["Technical Routes"])
@@ -78,8 +78,8 @@ def CreateSuppourtResistances(ticker: str, db: Session = Depends(get_db) , perio
 
 #  ALGO  
 @router.patch("/CreateSuppourtResistances/")
-def CreateNewLevels(db: Session = Depends(get_db) , period : str = "1d"):
-    data = CreatepatternSuppourt("RELIANCE" , db ,  period)
+def CreateNewLevels(ticker : str , db: Session = Depends(get_db) , period : str = "1d"):
+    data = CreatepatternSuppourt(ticker , db ,  period)
     return {
         "DATA":data
     }
@@ -169,3 +169,18 @@ def GenerateBuySellSignals(ticker: str, db: Session = Depends(get_db), period: s
         Support=float(support.Price) if support else None,
         PriceAction=[to_py(patterdata), to_py(patterdata2)]
     )
+
+@router.get("/SwingPoints/{ticker}")
+def CalculateVwap(ticker: str, db: Session = Depends(get_db))  : 
+    data = CalculateSwingPoints(ticker)
+    return data[0] 
+
+@router.get("/Vwap/{ticker}")
+def CalculateVwap(ticker: str, db: Session = Depends(get_db))  : 
+    data = CalculateSwingPoints(ticker) 
+    vwap , anchor_idx , anchor_type = CalculateVWAPFromLatestDivergence(data[1], data[0])
+    return  {
+        "Vwap" :vwap , 
+        "Date" : anchor_idx , 
+        "Type" : anchor_type
+    } 

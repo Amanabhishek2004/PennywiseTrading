@@ -224,19 +224,33 @@ def CreatepatternSuppourt(Ticker, db, period):
         return {"error": "Stock not found"}
 
     current_price = stock_data.CurrentPrice  # Retrieve the current price
-
-    # Fetch only price data within 10% of the current price
-    short_termprices = (
-        db.query(PriceData)
+ 
+    
+    last_support = (
+        db.query(SupportData)
         .filter(
-            PriceData.stock_id == stock_data.id,
-            PriceData.period == period,
-         and_( PriceData.close_price >= current_price * 0.9  ,  # Lower bound
-        PriceData.close_price <= current_price * 1.1) 
+            SupportData.stock_id == stock_data.id,
+            SupportData.period == period,
+            SupportData.timestamp != None  # Only consider supports with a timestamp
         )
-        .all()
+        .order_by(SupportData.timestamp.desc())
+        .first()
     )
+    last_time = last_support.timestamp if last_support else None
 
+    price_query = db.query(PriceData).filter(
+        PriceData.stock_id == stock_data.id,
+        PriceData.period == period,
+        and_(
+            PriceData.close_price >= current_price * 0.9,
+            PriceData.close_price <= current_price * 1.1
+        )
+    )
+    if last_time:
+        price_query = price_query.filter(PriceData.date > last_time)
+    
+    short_termprices = price_query.all()   
+     
     if not short_termprices:
         return {"error": "No price data available within the 10 percent range for the given period"}
 

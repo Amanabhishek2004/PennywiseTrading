@@ -59,11 +59,11 @@ def CreateVolumeChannel(db, Ticker: str, timeperiod: int = 30, period: str = "1d
     ).first()
 
     if existing_channel:
-        # Update the existing channel record
-        existing_channel.VolumeUpperChannelSlope = upperlineslope
-        existing_channel.VolumeUpperChannelIntercept = upperintercept
-        existing_channel.VolumeLowerChannelSlope = lowerlineslope
-        existing_channel.VolumeLowerChannelIntercept= lowerintercept
+    # Convert np.float64 to native float
+        existing_channel.VolumeUpperChannelSlope = float(upperlineslope)
+        existing_channel.VolumeUpperChannelIntercept = float(upperintercept)
+        existing_channel.VolumeLowerChannelSlope = float(lowerlineslope)
+        existing_channel.VolumeLowerChannelIntercept = float(lowerintercept)
     
 
     # Commit changes to the database

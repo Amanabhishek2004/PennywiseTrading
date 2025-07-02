@@ -226,7 +226,6 @@ class Quaterlyresult(Base):
     OPM_Percent_Quaterly = Column(String, nullable=True)
     Depreciation_Quaterly = Column(String, nullable=True)
 
-    # Relationship with Stocks
     stock = relationship("Stock", back_populates="quaterly_results")
 
 
@@ -243,8 +242,6 @@ class Shareholding(Base):
     Government = Column(String, nullable=True)  # Government shareholding in percentage
     Others = Column(String, nullable=True)  # Other entities' shareholding in percentage
     ShareholdersCount = Column(String, nullable=True)  # Number of shareholders
-    
-    # Relationship back to Stock
     stock = relationship("Stock", back_populates="shareholdings")
 
 
@@ -266,3 +263,15 @@ class Shareholding(Base):
 #     email = Column(String, unique=True, index=True)
 #     phonenumber = Column(String, unique=True, index=True)
 #     watchlist = relationship("Watchlist", back_populates="user", cascade="all, delete")
+
+
+# class Alert(Base) : 
+#         __tablename__ = "Alerts"
+#         id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+#         rsiPeakdivergence = Column(Float)
+#         Macross = Column(Float)
+#         lowerchannelSlope = Column(Float)
+#         upperchannelSlope = Column(Float) 
+#         RsiSlope = Column(Float)
+#         time = Column(String) 
+

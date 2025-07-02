@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from fastapi import  UploadFile, HTTPException, Depends , FastAPI
 from sqlalchemy.orm import Session
 import pandas as pd
+from Routers import StockFundamentalRoutes
 from Database.databaseconfig import Base, engine, get_db
 from Database.models import Stock 
 from uuid import uuid4
@@ -24,6 +25,7 @@ app.include_router(StockRouters.router)
 app.include_router(ComparisonRouters.router)
 app.include_router(AdminRouter.router)
 app.include_router(TechnicalRoutes.router)
+app.include_router(StockFundamentalRoutes.router)
  
 
 
@@ -47,7 +49,6 @@ app.add_middleware(
 def FPE(ticker: str, db: Session = Depends(get_db)):
       
       forwardpe = calculate_forward_pe(ticker , db)
-    #   Pegs = CalculateMedianpe(ticker)
  
       return {"ForwardPe" : forwardpe  }
 def parse_data(data_string):

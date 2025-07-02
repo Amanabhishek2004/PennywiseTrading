@@ -10,7 +10,7 @@ import math
 from Stock.Fundametals.Stock import * 
 from Stock.Technicals.rsiStrategy import *
 from Stock.Technicals.StockChannels import *    
-
+from Routers.AdminRouter import * 
 
 
 router = APIRouter(prefix="/Stock", tags=["Stocks"])
@@ -48,22 +48,41 @@ def check_for_inf(db: Session = Depends(get_db)):
         return {"Inf_Records": inf_info}
     return {"message": "No inf or -inf values found"}
 
+class PeersRequest(BaseModel):
+    tickers: List[str]
 
 @router.post("/peerstocks/", response_model=List[StockSchema])
-def GetPeers(ticker: List[str], db: Session = Depends(get_db)):
-     for stock in ticker:
-         if not isinstance(stock, str):
-             raise HTTPException(status_code=400, detail="Ticker must be a string")
-         elif db.query(Stock).filter(Stock.Ticker == stock).first() is None:
+def GetPeers(request: PeersRequest, db: Session = Depends(get_db)):
+    tickers = request.tickers
 
-                 raise HTTPException(status_code=400, detail="Stock not found")
-     
-     stocks = db.query(Stock).filter(Stock.Ticker.in_(ticker)).all()
-     
-     if not stocks:
-         raise HTTPException(status_code=404, detail="No stocks found")
-     
-     return stocks
+    # Validate all tickers exist
+    for stock in tickers:
+        if not isinstance(stock, str):
+            raise HTTPException(status_code=400, detail="Ticker must be a string")
+        if db.query(Stock).filter(Stock.Ticker == stock).first() is None:
+            raise HTTPException(status_code=400, detail=f"Stock not found: {stock}")
+
+        data = db.query(Stock).filter(Stock.Ticker == stock).first()
+        if len(data.pricedata) == 0:
+            update_single_ticker(stock, db)
+        if len(data.technicals) == 0:
+            CreateChannels(stock, db)
+
+        # CREATE LEVELS  
+        CreateSuppourtResistances(stock , db )
+        #  levels due to patterns  
+        CreateNewLevels(stock  , db )
+
+
+
+        UpdateAllTechnicaldata(stock, db)
+
+    stocks = db.query(Stock).filter(Stock.Ticker.in_(tickers)).all()
+
+    if not stocks:
+        raise HTTPException(status_code=404, detail="No stocks found")
+
+    return stocks
 
 
 
