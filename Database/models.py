@@ -1,9 +1,16 @@
-from sqlalchemy import Column, String, ForeignKey, Integer, Float, BigInteger
+from sqlalchemy import Column, String, ForeignKey, Integer, Float, BigInteger, Table
 from sqlalchemy.orm import relationship
-from Database.databaseconfig import Base
+from Database.databaseconfig import *
 from uuid import uuid4
 import json
+from sqlalchemy import event , text
+from Stock.Technicals.SignalGenerator import * 
+from datetime import datetime
 
+# from Database.DataBaseSingnals.AlertSignal import create_alert_on_stock_update  # adjust import path as needed
+# from .models import StockTechnicals  # or the model you want to listen to
+
+# Register the event listener
 # Utility function
 def ConvertStringJsonTo_Array(string):
     try:
@@ -11,6 +18,14 @@ def ConvertStringJsonTo_Array(string):
     except json.JSONDecodeError:
         print("Invalid JSON string")
         return []
+
+# Association table for many-to-many relationship between User and Stock
+watchlist_table = Table(
+    "Watchlist",
+    Base.metadata,
+    Column("user_id", String, ForeignKey("Users.id", ondelete="CASCADE"), primary_key=True),
+    Column("stock_id", String, ForeignKey("Stocks.id", ondelete="CASCADE"), primary_key=True)
+)
 
 # Stocks Table
 class Stock(Base):
@@ -27,6 +42,7 @@ class Stock(Base):
     updated = Column(String)
     FloatShares = Column(Float)
     sharesOutstanding = Column(Float)
+    swingpoints = relationship("SwingPoints", back_populates="stock", cascade="all, delete")
     channels = relationship("Channel", back_populates="stock", cascade="all, delete")
     technicals = relationship("StockTechnicals", back_populates="stock", cascade="all, delete")
     earning_metrics = relationship("EarningMetric", back_populates="stock", cascade="all, delete")
@@ -40,7 +56,81 @@ class Stock(Base):
     quaterly_results = relationship("Quaterlyresult", back_populates="stock", cascade="all, delete")
     shareholdings = relationship("Shareholding", back_populates="stock", cascade="all, delete")
     
-# EarningMetrics Table
+    users = relationship(
+        "User",
+        secondary=watchlist_table,
+        back_populates="watchlist"
+    )
+
+class Plan(Base):
+    __tablename__ = "Plans"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    plan_type = Column(String)
+    timeperiod = Column(String)
+    Price = Column(Integer)
+    invoices = relationship("Invoices", back_populates="plan", cascade="all, delete-orphan")
+    user_id = Column(String, ForeignKey("Users.id", ondelete="CASCADE"), nullable=True)
+    user = relationship("User", back_populates="plans")
+
+
+class Invoices(Base):
+    __tablename__ = "Invoices"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id = Column(String, ForeignKey("Users.id", ondelete="SET NULL"), nullable=True)
+    plan_id = Column(String, ForeignKey("Plans.id", ondelete="SET NULL"), nullable=True)
+    transaction_id = Column(String)
+    user = relationship("User", back_populates="invoices")
+    plan = relationship("Plan", back_populates="invoices")
+
+
+
+class ReadHistory(Base):
+    __tablename__ = "ReadHistory"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id = Column(String, ForeignKey("Users.id", ondelete="CASCADE"))
+    reads = Column(Integer, default=0)
+    date = Column(String, index=True)
+    dataused = Column(Float , default=0.0)
+    user = relationship("User", back_populates="read_history")
+
+
+
+class ApiKeyUsage(Base):
+    __tablename__ = "ApiKeyUsage"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id = Column(String, ForeignKey("Users.id", ondelete="CASCADE"))
+    apikey = Column(String, nullable=False)
+    date = Column(String, index=True)
+    user = relationship("User", back_populates="apikey_usage")
+
+
+
+class User(Base):
+    __tablename__ = "Users"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    username = Column(String, unique=True, index=True)
+    password = Column(String)
+    reads = Column(Integer)
+    Dataused = Column(Float)
+    name = Column(String, index=True)
+    email = Column(String, unique=True, index=True)
+    phonenumber = Column(String, unique=True, index=True)
+    AuthToken = Column(String, unique=True, index=True)
+    Apikey = Column(String, unique=True, nullable=True)
+
+    watchlist = relationship(
+        "Stock",
+        secondary=watchlist_table,
+        back_populates="users"
+    )
+    invoices = relationship("Invoices", back_populates="user", cascade="all, delete-orphan")
+    alerts = relationship("Alert", back_populates="user", cascade="all, delete-orphan")
+    plans = relationship("Plan", back_populates="user", cascade="all, delete-orphan")
+
+    read_history = relationship("ReadHistory", back_populates="user", cascade="all, delete-orphan")
+    apikey_usage = relationship("ApiKeyUsage", back_populates="user", cascade="all, delete-orphan")
+
+
 class EarningMetric(Base):
     __tablename__ = "EarningMetrics"
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
@@ -67,18 +157,24 @@ class Comparables(Base):
     stock_id = Column(String, ForeignKey("Stocks.id", ondelete="SET NULL"), nullable=True)
     trailingPE = Column(Float)
     forwardPE = Column(Float)
-    pricetoBook = Column(Float)
-    TotalCommonSharesOutstanding = Column(String)
+    pricetoBook = Column(Float , default=0.0)
     pricetoFreeCashFlow = Column(Float)
     pricetoSales = Column(Float)
     DebttoEquity = Column(Float)
-    trailingAnnualDividendYield = Column(Float)
-    dividendYield = Column(Float)
-    dividendRate = Column(Float)
-    fiveYearAvgDividendYield = Column(Float)
-    payoutRatio = Column(String)
+    dividendYield = Column(Float , default = 0.0)
+    payoutRatio = Column(Float)
+    medianpe = Column(Float) 
+    FCFF_Yield = Column(Float)
+    EV = Column(Float)
+    EVEBITDA = Column(Float) 
+    CurrentRatio = Column(Float)
+    peg = Column(Float) 
+    Avg_Sales_QoQ_Growth_Percent = Column(Float) 
+    Avg_NetProfit_QoQ_Growth_Percent = Column(Float) 
+    Avg_OperatingProfit_QoQ_Growth_Percent = Column(Float)
+    Avg_EPS_QoQ_Growth_Percent = Column(Float) 
     stock = relationship("Stock", back_populates="comparables")
-
+    
 # Expenses Table
 class Expenses(Base):
     __tablename__ = "Expenses"
@@ -207,11 +303,8 @@ class SupportData(Base):
     period = Column(String)
     stock = relationship("Stock", back_populates="support")
 
-
-
 class Quaterlyresult(Base):
     __tablename__ = "QuaterlyResults"
-
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     stock_id = Column(String, ForeignKey("Stocks.id", ondelete="SET NULL"), nullable=True)
     ticker = Column(String, nullable=False, index=True)
@@ -225,53 +318,166 @@ class Quaterlyresult(Base):
     Interest_Quaterly = Column(String, nullable=True)
     OPM_Percent_Quaterly = Column(String, nullable=True)
     Depreciation_Quaterly = Column(String, nullable=True)
-
     stock = relationship("Stock", back_populates="quaterly_results")
-
 
 class Shareholding(Base):
     __tablename__ = "Shareholdings"
-    
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     stock_id = Column(String, ForeignKey("Stocks.id"), nullable=False)
-    Date = Column(String, nullable=False)  # The date when the data was updated
-    Promoters = Column(String, nullable=True)  # Promoters' shareholding in percentage
-    FIIs = Column(String, nullable=True)  # Foreign Institutional Investors' shareholding in percentage
-    DIIs = Column(String, nullable=True)  # Domestic Institutional Investors' shareholding in percentage
-    Public = Column(String, nullable=True)  # Public shareholding in percentage
-    Government = Column(String, nullable=True)  # Government shareholding in percentage
-    Others = Column(String, nullable=True)  # Other entities' shareholding in percentage
-    ShareholdersCount = Column(String, nullable=True)  # Number of shareholders
+    Date = Column(String, nullable=False)
+    Promoters = Column(String, nullable=True)
+    FIIs = Column(String, nullable=True)
+    DIIs = Column(String, nullable=True)
+    Public = Column(String, nullable=True)
+    Government = Column(String, nullable=True)
+    Others = Column(String, nullable=True)
+    ShareholdersCount = Column(String, nullable=True)
     stock = relationship("Stock", back_populates="shareholdings")
 
+from sqlalchemy import Boolean
 
-# class Watchlist(Base):  
-#     __tablename__ = "Watchlist"
-#     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
-#     user_id = Column(String, ForeignKey("Users.id"), nullable=False)
-#     stock_id = Column(String, ForeignKey("Stocks.id"), nullable=False)
-#     stock = relationship("Stock", back_populates="watchlist")
-#     user = relationship("User", back_populates="watchlist")
-
-
-# class User(Base):
-#     __tablename__ = "Users"
-#     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
-#     username = Column(String, unique=True, index=True)
-#     password = Column(String)
-#     name = Column(String, index=True)
-#     email = Column(String, unique=True, index=True)
-#     phonenumber = Column(String, unique=True, index=True)
-#     watchlist = relationship("Watchlist", back_populates="user", cascade="all, delete")
+class Alert(Base):
+    __tablename__ = "Alerts"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id = Column(String, ForeignKey("Users.id", ondelete="SET NULL"), nullable=True)  # Add this line
+    rsiPeakdivergence = Column(Boolean)  # Use Boolean, not bool
+    Ticker = Column(String)
+    Macross = Column(Float)
+    lowerchannelSlope = Column(Float)
+    upperchannelSlope = Column(Float)
+    RsiSlope = Column(Float)
+    time = Column(String)
+    period = Column(String)
+    tag = Column(String)
+    user = relationship("User", back_populates="alerts")
 
 
-# class Alert(Base) : 
-#         __tablename__ = "Alerts"
-#         id = Column(String, primary_key=True, default=lambda: str(uuid4()))
-#         rsiPeakdivergence = Column(Float)
-#         Macross = Column(Float)
-#         lowerchannelSlope = Column(Float)
-#         upperchannelSlope = Column(Float) 
-#         RsiSlope = Column(Float)
-#         time = Column(String) 
+class SwingPoints(Base):
+    __tablename__ = "SwingPoints"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    pattern = Column(String)
+    time = Column(String)
+    tag = Column(String)
+    stock_id = Column(String, ForeignKey("Stocks.id", ondelete="SET NULL"), nullable=True)
+    stock = relationship("Stock", back_populates="swingpoints")
 
+def create_alert_on_stock_update(mapper, connection, target):
+    if target.RsiSlope is None or target.CurrentRsi is None:
+        return  # Skip processing if RSI-related values are not available
+
+    session = SessionLocal()
+    period = target.period
+
+    channel = session.query(Channel).filter(Channel.stock_id == target.stock_id, Channel.period == period).first()
+    signal = GenrateSignals(target.ticker, session, period)
+    print(channel.lower_channel_slope  ,target.RsiSlope )
+    if not channel or not signal or "RSI Signal" not in signal or "RSI" not in signal["RSI Signal"]:
+        session.close()
+        return
+
+    alert_cases = []
+
+    # Strongbear
+    if signal["RSI Signal"].get("rsipeak_max") and signal["RSI Signal"].get("Rsi", 0) > 70 and channel.upper_channel_slope > 0:
+        alert_cases.append({"tag": "Strongbear", "rsiPeakdivergence": True})
+
+    # Strongbull
+    if signal["RSI Signal"].get("rsipeak_min") and signal["RSI Signal"].get("Rsi", 100) < 35 and channel.lower_channel_slope > 0:
+        alert_cases.append({"tag": "Strongbull", "rsiPeakdivergence": True})
+
+    # Bull
+    if target.RsiSlope > 0 and channel.lower_channel_slope < 0:
+        alert_cases.append({"tag": "bull", "rsiPeakdivergence": False})
+
+    # Bearish
+    if target.RsiSlope < 0 and channel.lower_channel_slope > 0:
+        alert_cases.append({"tag": "bearish", "rsiPeakdivergence": False})
+
+    for case in alert_cases:
+        sql = text("""
+            INSERT INTO "Alerts" (
+                id, user_id, "Ticker", time, "RsiSlope", "lowerchannelSlope", "upperchannelSlope", "rsiPeakdivergence", tag, period
+            )
+            SELECT
+                :id, w.user_id, :ticker, :time, :rsislope, :lower, :upper, :peak, :tag, :period
+            FROM "Watchlist" w
+            WHERE w.stock_id = :stock_id
+            AND NOT EXISTS (
+                SELECT 1 FROM "Alerts" a
+                WHERE a.user_id = w.user_id
+                AND a."Ticker" = :ticker
+                AND a."lowerchannelSlope" = :lower
+                AND a."upperchannelSlope" = :upper
+                AND a."rsiPeakdivergence" = :peak
+                AND a.tag = :tag
+                AND a.period = :period
+                AND a.time::date = :date
+            )
+        """)
+        session.execute(
+            sql,
+            {
+                "id": str(uuid4()),
+                "ticker": target.ticker,
+                "time": str(datetime.today().now()),
+                "rsislope": target.RsiSlope,
+                "lower": channel.lower_channel_slope,
+                "upper": channel.upper_channel_slope,
+                "peak": case["rsiPeakdivergence"],
+                "stock_id": target.stock_id,
+                "date": str(datetime.today().date()),
+                "tag": case["tag"],
+                "period": period
+            }
+        )
+    session.commit()
+    session.close()
+
+event.listen(StockTechnicals, "after_update", create_alert_on_stock_update)
+
+
+def create_alert_on_swingpoint_insert(mapper, connection, target):
+    session = SessionLocal()
+
+    try:
+        stock = session.query(Stock).filter(Stock.id == target.stock_id).first()
+        if not stock:
+            return
+
+        sql = text("""
+            INSERT INTO "Alerts" (
+                id, user_id, "Ticker", time, tag, "rsiPeakdivergence", period
+            )
+            SELECT
+                :id, w.user_id, :ticker, :time, :tag, :peak, :period
+            FROM "Watchlist" w
+            WHERE w.stock_id = :stock_id
+            AND NOT EXISTS (
+                SELECT 1 FROM "Alerts" a
+                WHERE a.user_id = w.user_id
+                AND a."Ticker" = :ticker
+                AND a.tag = :tag
+                AND a."rsiPeakdivergence" = :peak
+                AND a.period = :period
+                AND a.time::date = :date
+            )
+        """)
+
+        session.execute(sql, {
+            "id": str(uuid4()),
+            "ticker": stock.Ticker,
+            "time": str(datetime.now()),
+            "tag": target.pattern,
+            "peak": False,
+            "period": "30m",
+            "stock_id": target.stock_id,
+            "date": str(datetime.today().date())
+        })
+
+        session.commit()
+
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()

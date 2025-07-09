@@ -18,7 +18,7 @@ def CalculateROE(equitycapital , reserves, netincome):
     return np.nanmedian(yearly)
 
 def CalculateATR(Assets, Revenue):
- 
+     
     if not Assets or not Revenue:
         return np.nan
     yearly = [
@@ -27,18 +27,8 @@ def CalculateATR(Assets, Revenue):
     ]
     return np.nanmedian(yearly)
 
-def CalculateICR(EBIT, INTEREST, TAXRATE):
-    """
-    Calculate Interest Coverage Ratio (ICR).
+def CalculateICR(EBIT, INTEREST):
 
-    Args:
-        EBIT (list or str): Earnings before interest and tax.
-        INTEREST (list or str): Interest payments.
-        TAXRATE (list or str): Tax rates.
-
-    Returns:
-        float: Median ICR value.
-    """
     # Convert inputs to lists of floats
     if not EBIT or not INTEREST:
         return np.nan
@@ -58,19 +48,7 @@ def CalculateICR(EBIT, INTEREST, TAXRATE):
 import numpy as np
 
 def CalculateFCFF(operatingCashflow, interest, taxrate, fa, wc):
-    """
-    Calculate Free Cash Flow to Firm (FCFF).
 
-    Args:
-        operatingCashflow (list[float]): Operating cash flows.
-        interest (list[float]): Interest payments.
-        taxrate (list[float]): Tax rates.
-        fa (list[float]): Fixed assets values.
-        wc (list[float]): Working capital values.
-
-    Returns:
-        tuple: (CapEx, FCFF) - Calculated CapEx and FCFF values.
-    """
     def safe_to_float(value):
         """Convert value to float if possible, otherwise return NaN."""
         try:
@@ -79,7 +57,8 @@ def CalculateFCFF(operatingCashflow, interest, taxrate, fa, wc):
             return float(value)
         except (ValueError, TypeError):
             return np.nan
-
+    
+    print(operatingCashflow , interest , taxrate , fa, wc )
     # Convert inputs to NumPy arrays and replace NaNs with 0
     fa = np.nan_to_num(np.array([safe_to_float(x) for x in fa], dtype=float), nan=0.0)
     wc = np.nan_to_num(np.array([safe_to_float(x) for x in wc], dtype=float), nan=0.0)
@@ -97,11 +76,11 @@ def CalculateFCFF(operatingCashflow, interest, taxrate, fa, wc):
     wc_diff = np.diff(wc, prepend=wc[0])
 
     # Calculate CapEx
-    capex = [-fa_diff[i] - wc_diff[i] for i in range(len(fa_diff))]
+    capex = [float(-fa_diff[i] - wc_diff[i]) for i in range(len(fa_diff))]
 
     # Calculate FCFF
     fcff = [
-        operatingCashflow[i] + interest[i] * (1 - taxrate[i]) - capex[i]
+        float(operatingCashflow[i] + interest[i] * (1 - (taxrate[i]/100)) - capex[i])
         for i in range(len(operatingCashflow))
     ]
 
@@ -125,19 +104,7 @@ def CalculateCOI(interest, debt):
     return np.nanmedian(yearly)
 
 def CalculateWACC(CostOfDebt, beta, Debt, Equity, Taxrate):
-    """
-    Calculate the Weighted Average Cost of Capital (WACC).
-    
-    Args:
-        CostOfDebt (float): Cost of debt.
-        beta (float): Beta value of the stock.
-        Debt (list[float] or float): Total debt.
-        Equity (list[float] or float): Total equity.
-        Taxrate (list[float] or float): Tax rate.
 
-    Returns:
-        float: Calculated WACC value.
-    """
     def safe_to_float(value):
         """Convert value to float if possible, otherwise return NaN."""
         try:
@@ -147,7 +114,6 @@ def CalculateWACC(CostOfDebt, beta, Debt, Equity, Taxrate):
         except (ValueError, TypeError):
             return np.nan
 
-    # Convert inputs to NumPy arrays of floats
     Debt = np.array([safe_to_float(x) for x in np.atleast_1d(Debt)], dtype=float)
     Equity = np.array([safe_to_float(x) for x in np.atleast_1d(Equity)], dtype=float)
     Taxrate = np.array([safe_to_float(x) for x in np.atleast_1d(Taxrate)], dtype=float)
@@ -177,7 +143,7 @@ def CalculateWACC(CostOfDebt, beta, Debt, Equity, Taxrate):
 
     # Calculate WACC
     WACC = (
-        CostOfDebt * (1 - Taxrate) * (Debt / TotalCapital) +
+        CostOfDebt * (1 - Taxrate / 100) * (Debt / TotalCapital) +
         CostOfEquity * (Equity / TotalCapital)
     )
 
@@ -192,32 +158,30 @@ def CalculateWACC(CostOfDebt, beta, Debt, Equity, Taxrate):
 
 
 def convert_to_list(data_string):
+    if data_string is None:
+        return []
 
     if isinstance(data_string, (int, float)):
-        # If the input is already numeric, return it as a single-element list
         return [float(data_string)]
-    elif isinstance(data_string, str):
-        # Remove brackets and split elements
-        cleaned_data = data_string.strip().replace("[", "").replace("]", "").replace("'", "").replace("%", "")
-        elements = cleaned_data.split(", ")
 
-        # Convert to numbers (float) where possible, preserve text or dates
+    elif isinstance(data_string, str):
+        cleaned_data = data_string.strip().replace("[", "").replace("]", "").replace("'", "").replace("%", "")
+        elements = cleaned_data.split(",")
         result = []
+
         for element in elements:
             element = element.strip()
+            if element == "":
+                element = "0"
             try:
-                # Handle commas in numbers (including negatives)
                 number = float(element.replace(",", ""))
                 result.append(number)
             except ValueError:
-                # Preserve as is for non-numeric text (e.g., dates or strings)
                 result.append(element)
         return result
-    else:
-        # If input is neither string nor number, return as an empty list
-        return []
 
-import pandas as pd 
+    else:
+        return []
 
 
 def calculate_growth_with_rolling(data):

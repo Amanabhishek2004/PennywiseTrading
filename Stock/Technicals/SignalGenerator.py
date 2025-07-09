@@ -1,11 +1,6 @@
 from .rsiStrategy import *
 from .Meanreversion import *
 
-
-# RSI DIVERGANCE WITH PRICE ABOVE UPPER BBAND STRONG SELL
-# RSI DIVERGANCE  -- SELL OR BUY BUT WITH RSI BELOW 30 OR ABOVE 70 STRONG SIGNALS
-#  sell at resistance and buy at suppourt
-
 from sqlalchemy import func, desc
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -16,7 +11,8 @@ def GenrateSignals(ticker, db, period):
     """
     Generate trading signals based on RSI divergence, channel data, and volume analysis for a given stock ticker.
     """
-    # Fetch price data from the database
+    from Database.models import PriceData, StockTechnicals, Stock, Channel
+
     Prices = (
         db.query(PriceData)
         .filter(PriceData.ticker == ticker, PriceData.period == period)
@@ -54,12 +50,13 @@ def GenrateSignals(ticker, db, period):
     except Exception as e:
         return {"error": f"Failed to fetch data from Yahoo Finance: {e}"}
 
-    price = data.iloc[-1]["Close"]
+    price = float(data.iloc[-1]["Close"])
     rsislope = technicaldata.RsiSlope
     currentrsi = technicaldata.CurrentRsi
     lowerchannelslope = channel.lower_channel_slope
     lowervaolumechannel = technicaldata.VolumeLowerChannelSlope
-    # Moving Averages
+
+
     closingprices_series = pd.Series(closingprices)
     DMA20 = (
         closingprices_series.rolling(20).mean().iloc[-1]
@@ -76,17 +73,18 @@ def GenrateSignals(ticker, db, period):
     std = np.std(obvs[-20:])
     mean = np.mean(obvs[-20:])
     normalized_volscore = (Currentobv - mean) / std
-
+    if  currentrsi : 
     # RSI Signals
-    rsipeak = CalculateRSIpeakMaxmin(
-        db, price, currentrsi, datetime.now().isoformat(), period, interval=70
+        rsipeak_max , rsipeak_min = CalculateRSIpeakMaxmin(
+        db, price, currentrsi, ticker, period, interval=30
     )
+
+    else : 
+          rsipeak_max , rsipeak_min = False , False  
+
     Rsisignal = {
-        "Buy": False,
-        "Sell": False,
-        "StrongSell": False,
-        "StrongBuy": False,
-        "rsipeak": rsipeak, 
+        "rsipeak_max": rsipeak_max,
+        "rsipeak_min" :rsipeak_min , 
         "Rsi" : currentrsi
     }
     masignal = {
@@ -95,33 +93,26 @@ def GenrateSignals(ticker, db, period):
     }
     #  create volume profiles        
 
-    if lowerchannelslope > 0:
-        if not rsipeak and rsislope < 0 and currentrsi > 70:
-            Rsisignal["Sell"] = True
-            Rsisignal["StrongSell"] = True
-        if rsipeak and rsislope < 0:
-            Rsisignal["Buy"] = True
-        if rsipeak and currentrsi <= 30:
-            Rsisignal["Buy"] = True
-    elif lowerchannelslope < 0:
-        if not rsipeak and rsislope > 0 and currentrsi < 30:
-            Rsisignal["Buy"] = True
-            Rsisignal["StrongBuy"] = True
-        if rsipeak and rsislope > 0:
-            Rsisignal["Sell"] = True
-
+    
     # Volume Signals
     volumepeaks = CalculateVolumepeakmaxmin(
         db, datetime.now().isoformat(), ticker, period, 20
     )
+
+    if lowervaolumechannel is not None and lowerchannelslope is not None:
+        peak_div = (lowervaolumechannel * lowerchannelslope) > 0
+    else:
+        peak_div = False  # or None, depending on your logic
+
     volumesignal = {
-        "peakDIv": (lowervaolumechannel) * (lowerchannelslope) > 0,
+        "peakDIv": peak_div,
         "Suppourt": volumepeaks.get("min") if volumepeaks else None,
         "Resistance": volumepeaks.get("max") if volumepeaks else None,
         "normalizedobv": normalized_volscore,
         "CurrentObv": Currentobv,
         "lowerchannel" : lowervaolumechannel
     }
+    
     return {
         "RSI Signal": Rsisignal,
         "MA Signal": masignal,

@@ -9,7 +9,7 @@ from sqlalchemy import func
 from sklearn.linear_model import LinearRegression
 
 def OnbalanceVolume(prices) : 
-
+    from Database.models import  Stock , StockTechnicals , Channel , PriceData  
     data = pd.DataFrame(
         {"Date": [price.Date for price in prices],  
          "Close": [price.close_price for price in prices],
@@ -24,16 +24,17 @@ def OnbalanceVolume(prices) :
     }
 
 def CreateVolumeChannel(db, Ticker: str, timeperiod: int = 30, period: str = "1d"):
-    # Query the PriceData table for the specified ticker
+    from Database.models import Stock, StockTechnicals, Channel, PriceData  
+
+    print("VOL", period)
 
     price_data = (
         db.query(PriceData)
-        .filter(PriceData.ticker == Ticker ,PriceData.period == period )
+        .filter(PriceData.ticker == Ticker, PriceData.period == period)
         .order_by(PriceData.date.asc())
         .all()
     )
 
-    # Validate data
     if not price_data:
         print("No Price Data")
         return
@@ -44,41 +45,53 @@ def CreateVolumeChannel(db, Ticker: str, timeperiod: int = 30, period: str = "1d
         "Volume": record.OnbalanceVolume,
     } for record in price_data])
 
-    # Ensure there are enough data points
     if len(data) < timeperiod:
         raise ValueError(f"Not enough data points to calculate channels for timeperiod: {timeperiod}")
 
-    # Calculate upper and lower channels
+    # Calculate channels
     upperlineslope, upperintercept = CreateUpperChannel(data, window=timeperiod)
     lowerlineslope, lowerintercept = CreateLowerChannel(data, window=timeperiod)
 
-    # Check if the channel data already exists
     existing_channel = db.query(StockTechnicals).filter(
         StockTechnicals.ticker == Ticker,
         StockTechnicals.period == period
     ).first()
 
     if existing_channel:
-    # Convert np.float64 to native float
+        print("Updating existing channel")
         existing_channel.VolumeUpperChannelSlope = float(upperlineslope)
         existing_channel.VolumeUpperChannelIntercept = float(upperintercept)
         existing_channel.VolumeLowerChannelSlope = float(lowerlineslope)
         existing_channel.VolumeLowerChannelIntercept = float(lowerintercept)
-    
+    else:
+        print("Creating new StockTechnicals entry")
+        # Get the related stock_id
+        stock = db.query(Stock).filter(Stock.Ticker == Ticker).first()
+        stock_id = stock.id if stock else None
 
-    # Commit changes to the database
+        new_entry = StockTechnicals(
+            ticker=Ticker,
+            period=period,
+            stock_id=stock_id,
+            VolumeUpperChannelSlope=float(upperlineslope),
+            VolumeUpperChannelIntercept=float(upperintercept),
+            VolumeLowerChannelSlope=float(lowerlineslope),
+            VolumeLowerChannelIntercept=float(lowerintercept),
+        )
+        db.add(new_entry)
+
     db.commit()
 
     return {
         "UpperChannelData": {
             "Slope": upperlineslope,
             "Intercept": upperintercept,
-            "Channel": ((upperlineslope * np.arange(len(data))) + upperintercept).tolist(),  # Convert ndarray to list
+            "Channel": ((upperlineslope * np.arange(len(data))) + upperintercept).tolist(),
         },
         "LowerChannelData": {
             "Slope": lowerlineslope,
             "Intercept": lowerintercept,
-            "Channel": ((lowerlineslope * np.arange(len(data))) + lowerintercept).tolist(),  # Convert ndarray to list
+            "Channel": ((lowerlineslope * np.arange(len(data))) + lowerintercept).tolist(),
         },
     }
 
@@ -120,6 +133,7 @@ def format_with_colon(dt):
 
 
 def CalculateVolumepeakmaxmin(db, date, ticker, period, interval):
+    from Database.models import  Stock , StockTechnicals , Channel , PriceData  
     tolerance = 0.003
     ist_offset = timezone(timedelta(hours=5, minutes=30))
     if period == "1d":

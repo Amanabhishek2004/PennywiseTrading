@@ -15,6 +15,7 @@ def UpdateTheChannelsdata(Ticker, db):
         price_min = (
             db.query(PriceData)
             .filter(PriceData.period == "1m", PriceData.stock.Ticker == Ticker)
+            .order_by(PriceData.date.asc())
             .all()
         )
         stock_data = db.query(Stock).filter(Stock.Ticker == Ticker).first()
@@ -44,6 +45,7 @@ def UpdateSuppourt(Ticker, db, period):
     short_termprices = (
         db.query(PriceData).join(Stock)
         .filter(PriceData.period == period, Stock.Ticker == Ticker)
+        .order_by(PriceData.date.asc())
         .all()
     )
     last_short_term_price = short_termprices[-1]
@@ -144,11 +146,13 @@ def MakeStrongSupportResistance(ticker, db, period):
     Prices = db.query(PriceData).filter(
     PriceData.stock_id == stock_data.id,
     PriceData.period == period,
+
     and_(
         PriceData.close_price >= current_price * 0.9,  # Lower bound
         PriceData.close_price <= current_price * 1.1   # Upper bound
     )
-).all()
+).order_by(PriceData.date.asc()).all() 
+    
     if not Prices: 
         return
 
@@ -245,7 +249,8 @@ def CreatepatternSuppourt(Ticker, db, period):
             PriceData.close_price >= current_price * 0.9,
             PriceData.close_price <= current_price * 1.1
         )
-    )
+    ).order_by(
+        PriceData.date.asc())
     if last_time:
         price_query = price_query.filter(PriceData.date > last_time)
     
@@ -309,7 +314,7 @@ def CreatepatternSuppourt(Ticker, db, period):
         .filter(
             SupportData.stock_id == stock_data.id,
             SupportData.period == period,
-            SupportData.Price <= current_price,
+            SupportData.Price < current_price,
         )
         .order_by(SupportData.Price.desc())  # Nearest support below current price
         .first()
@@ -320,7 +325,7 @@ def CreatepatternSuppourt(Ticker, db, period):
         .filter(
             SupportData.stock_id == stock_data.id,
             SupportData.period == period,
-            SupportData.Price >= current_price,
+            SupportData.Price > current_price,
         )
         .order_by(SupportData.Price.asc())  # Nearest resistance above current price
         .first()
@@ -458,16 +463,3 @@ def IdentifyDoubleCandleStickPatterns(prices, period):
     return None
 
 
-Price = namedtuple("Price", ["open_price", "close_price", "high_price", "low_price", "date"])
-test_data = [
-    Price(open_price=100, close_price=105, high_price=110, low_price=95, date="2025-06-10"),
-    Price(open_price=106, close_price=101, high_price=111, low_price=100, date="2025-06-11"),
-]
-
-for price in test_data:
-    result = IdentifySingleCandleStickPattern(price, "1d")
-    print(result)
-
-for i in range(len(test_data) - 1):
-    result = IdentifyDoubleCandleStickPatterns(test_data[i:i+2], "1d")
-    print(result)

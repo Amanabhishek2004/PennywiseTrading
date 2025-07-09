@@ -8,96 +8,18 @@ from Stock.Technicals.StockChannels import CreateChannel
 from typing import List
 from Database.Schemas.StockSchema import *
 import math
-from Stock.Fundametals.Stock import * 
 from Stock.Technicals.rsiStrategy import *
 from Stock.Technicals.SuppourtResistance import *
 from Database.Schemas.PriceSchema import *
 from Stock.Technicals.SignalGenerator  import * 
-from Stock.Technicals.DynamicSuppourtResistance import * 
 
+from Stock.Technicals.DynamicSuppourtResistance import * 
+from pydantic import BaseModel
+from typing import Optional, Dict, Any, List
+from Routers.UserAccountRoutes import get_current_user , get_deep_size , track_read_and_data_usage
 
 router = APIRouter(prefix="/Stock", tags=["Technical Routes"])
 
-
-
-class InputData(BaseModel):
-    ticker: str
-    period : str = "1m"
-    timeperiod : int = 30     
-
-
-class responseData(BaseModel):
-    channels: List[float] = []
-
-
-class ChannelData(BaseModel):
-    Slope: float
-    Intercept: float
-    Channel: List[float]
-
-class ChannelResponse(BaseModel):
-    UpperChannelData: ChannelData
-    LowerChannelData: ChannelData
-
-@router.post("/StockChannels/", response_model=ChannelResponse) 
-def GetStockChannels(input_data: InputData, db: Session = Depends(get_db) ):
-    """
-    Get stock channels for a given ticker.
-    """
-    try:
-        channels = CreateChannel(db , Ticker=input_data.ticker, period =input_data.period , timeperiod=input_data.timeperiod)  # Example time period from input
-        print(channels)
-        return channels
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) 
-
-
-@router.get("/GetSuppourtResistance" , response_model=dict )
-def GetSupportResistance(ticker: str, db: Session = Depends(get_db) , period :str = "1d"):
-    """
-    Get support and resistance levels for a given ticker.
-    """
-    try:
-        stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-        if not stock:
-            raise HTTPException(status_code=404, detail="Stock not found")
-
-        DATA = UpdateSuppourt(ticker , db , period)
-        return DATA
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-
-
-@router.post("/SuppourtResistance" , response_model=dict )
-def CreateSuppourtResistances(ticker: str, db: Session = Depends(get_db) , period :str = "1d"):  
-    data = MakeStrongSupportResistance(ticker , db , period)
-    return {"detail" : "success"}
-
-
-
-#  ALGO  
-@router.patch("/CreateSuppourtResistances/")
-def CreateNewLevels(ticker : str , db: Session = Depends(get_db) , period : str = "1d"):
-    data = CreatepatternSuppourt(ticker , db ,  period)
-    return {
-        "DATA":data
-    }
-
-@router.get("/GetPrices/" , response_model = List[PriceDataResponse])
-def getallPrices(ticker , period , db: Session = Depends(get_db)) :
-        prices = (
-        db.query(PriceData).join(Stock)
-        .filter(PriceData.period == period, Stock.Ticker == ticker)
-        .all()
-    )      
-        return prices
-
-
-
-
-from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
 
 class RSISignalSchema(BaseModel):
     Buy: bool
@@ -126,61 +48,109 @@ class SignalResponseSchema(BaseModel):
     PriceAction: Optional[Any]
 
 
+class InputData(BaseModel):
+    ticker: str
+    period : str = "1m"
+    timeperiod : int = 30     
 
 
+class responseData(BaseModel):
+    channels: List[float] = []
+
+
+class ChannelData(BaseModel):
+    Slope: float
+    Intercept: float
+    Channel: List[float]
+
+class ChannelResponse(BaseModel):
+    UpperChannelData: ChannelData
+    LowerChannelData: ChannelData
+
+@router.post("/StockChannels/", response_model=ChannelResponse)
+def GetStockChannels(input_data: InputData, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    channels = CreateChannel(db, Ticker=input_data.ticker, period=input_data.period, timeperiod=input_data.timeperiod)
+    track_read_and_data_usage(db, current_user.id, channels)
+    return channels
+
+
+@router.get("/GetSupportResistance", response_model=dict)
+def GetSupportResistance(ticker: str, db: Session = Depends(get_db), period: str = "1d", current_user: User = Depends(get_current_user)):
+    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+    DATA = UpdateSuppourt(ticker, db, period)
+    track_read_and_data_usage(db, current_user.id, DATA)
+    return DATA
+
+
+@router.post("/SuppourtResistance", response_model=dict)
+def CreateSuppourtResistances(ticker: str, db: Session = Depends(get_db), period: str = "1d", current_user: User = Depends(get_current_user)):
+    data = MakeStrongSupportResistance(ticker, db, period)
+    track_read_and_data_usage(db, current_user.id, data)
+    return {"detail": "success"}
+
+
+@router.patch("/CreateSuppourtResistances/")
+def CreateNewLevels(ticker: str, db: Session = Depends(get_db), period: str = "1d", current_user: User = Depends(get_current_user)):
+    data = CreatepatternSuppourt(ticker, db, period)
+    track_read_and_data_usage(db, current_user.id, data)
+    return {"DATA": data}
+
+
+@router.get("/GetPrices/", response_model=List[PriceDataResponse])
+def getallPrices(ticker: str, period: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    prices = db.query(PriceData).join(Stock).filter(PriceData.period == period, Stock.Ticker == ticker).all()
+    track_read_and_data_usage(db, current_user.id, prices)
+    return prices
 
 
 @router.get("/GenerateSignals/{ticker}", response_model=SignalResponseSchema)
-def GenerateBuySellSignals(ticker: str, db: Session = Depends(get_db), period: str = "1d"):
-    prices = (
-        db.query(PriceData).join(Stock)
-        .filter(PriceData.period == period, Stock.Ticker == ticker)
-        .all())
+def GenerateBuySellSignals(ticker: str, db: Session = Depends(get_db), period: str = "1d", current_user: User = Depends(get_current_user)):
+    prices = db.query(PriceData).join(Stock).filter(PriceData.period == period, Stock.Ticker == ticker).all()
     signal = GenrateSignals(ticker, db, period)
-    print(signal)
     stock_data = db.query(Stock).filter(Stock.Ticker == ticker).first()
     currentprice = float(stock_data.CurrentPrice)
     tolerance = 0.008 * currentprice
-    support = (
-        db.query(SupportData).filter(
-            SupportData.stock_id == stock_data.id,
-            SupportData.period == period,
-            SupportData.Price >= currentprice - tolerance,
-            SupportData.Price <= currentprice + tolerance
-        ).first())
+    support = db.query(SupportData).filter(
+        SupportData.stock_id == stock_data.id,
+        SupportData.period == period,
+        SupportData.Price >= currentprice - tolerance,
+        SupportData.Price <= currentprice + tolerance
+    ).first()
+
     message = None
     if support and signal["RSI Signal"]["Rsi"] < 35:
         message = f"Buy at {float(support.Price)}"
-    if signal["RSI Signal"]["rsipeak"] and signal["RSI Signal"]["Rsi"] < 35:
+    if signal["RSI Signal"].get("rsipeak_min") and signal["RSI Signal"]["Rsi"] < 35:
         message = f"Buy at {currentprice} or {float(support.Price) if support else None}"
-    if signal["RSI Signal"]["Sell"] and signal["MA Signal"]["Sell"]:
-        message = f"Sell at {currentprice}"
 
     patterdata = IdentifyDoubleCandleStickPatterns(prices[-2:], period)
     patterdata2 = IdentifySingleCandleStickPattern(prices[-1], period)
+
     def to_py(val):
-        # Convert numpy types to Python native types
-        if hasattr(val, "item"):
-            return val.item()
-        return val
-    return SignalResponseSchema(
+        return val.item() if hasattr(val, "item") else val
+
+    result = SignalResponseSchema(
         Signal={k: {ik: to_py(iv) for ik, iv in v.items()} for k, v in signal.items()},
         message=message,
         Support=float(support.Price) if support else None,
         PriceAction=[to_py(patterdata), to_py(patterdata2)]
     )
 
+    track_read_and_data_usage(db, current_user.id, result)
+    return result
+
+
 @router.get("/SwingPoints/{ticker}")
-def CalculateVwap(ticker: str, db: Session = Depends(get_db))  : 
-    data = CalculateSwingPoints(ticker)
-    return data[0] 
+def GetSwingPoints(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    data = CalculateSwingPoints(ticker, db)
+    track_read_and_data_usage(db, current_user.id, data)
+    return data[0]
+
 
 @router.get("/Vwap/{ticker}")
-def CalculateVwap(ticker: str, db: Session = Depends(get_db))  : 
-    data = CalculateSwingPoints(ticker) 
-    vwap , anchor_idx , anchor_type = CalculateVWAPFromLatestDivergence(data[1], data[0])
-    return  {
-        "Vwap" :vwap , 
-        "Date" : anchor_idx , 
-        "Type" : anchor_type
-    } 
+def CalculateVwap(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    vwap = GetVWAPsFromLatestDivergences(ticker, db)
+    track_read_and_data_usage(db, current_user.id, vwap)
+    return vwap

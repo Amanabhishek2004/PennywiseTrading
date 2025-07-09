@@ -1,11 +1,12 @@
 import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
-from Database.models import *
+from uuid import uuid4
 
-
-def CreateChannel(db, Ticker: str, timeperiod: int = 30, period: str = "1d"):
+def CreateChannel(db, Ticker: str, timeperiod: int = 20, period: str = "1d"):
     # Query the PriceData table for the specified ticker
+    print(period)
+    from Database.models import PriceData , Channel
     price_data = (
         db.query(PriceData)
         .filter(PriceData.ticker == Ticker, PriceData.period == period)
@@ -57,13 +58,13 @@ def CreateChannel(db, Ticker: str, timeperiod: int = 30, period: str = "1d"):
             id=str(uuid4()),
             stock_id=price_data[
                 0
-            ].stock_id,  # Assuming all records have the same stock_id
+            ].stock_id, 
             ticker=Ticker,
-            upper_channel_slope=upperlineslope,
-            upper_channel_intercept=upperintercept,
+            upper_channel_slope=float(upperlineslope),
+            upper_channel_intercept=float(upperintercept),
             period=period,
-            lower_channel_slope=lowerlineslope,
-            lower_channel_intercept=lowerintercept,
+            lower_channel_slope=float(lowerlineslope),
+            lower_channel_intercept=float(lowerintercept),
         )
         db.add(channel)
 

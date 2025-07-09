@@ -1,229 +1,270 @@
-from pydantic import BaseModel
-from typing import List, Optional
-from fastapi import FastAPI, Depends
-from sqlalchemy.orm import Session
-from Database.databaseconfig import get_db
-from Database.models import Stock
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException
-from Database.Schemas.StockFundamentalRoutesSchema import * 
-
+from datetime import date
 import ast
+import sys
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from Database.databaseconfig import get_db
+from Database.models import Stock, User, ReadHistory
+from Database.Schemas.StockFundamentalRoutesSchema import (
+    EarningMetricSchema,
+    ExpensesSchema,
+    FinancialsSchema,
+    QuaterlyresultSchema,
+    ShareholdingSchema,
+    DaysSchema,
+)
+from Routers.UserAccountRoutes import get_current_user
 
 router = APIRouter(prefix="/V2", tags=["Stock Fundamental Data Routes"])
-def parse_metric_with_dates(metric_str, dates):
-    try:
-        values = ast.literal_eval(metric_str)
-        return [
-            {"Date": date, "Value": float(val)}
-            for date, val in zip(dates, values)
-        ]
-    except Exception:
-        return []       
-    
 
-@router.get("/earning-metric/{ticker}", response_model=EarningMetricSchema)
-def get_earning_metric(ticker: str, db: Session = Depends(get_db)):
-    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-    if not stock:
-        raise HTTPException(status_code=404, detail="Stock not found")
+# ------------------------------------------------------
+# 🛠️  Utility helpers for deep size + usage tracking
+# ------------------------------------------------------
 
-    earning_metric = stock.earning_metrics[0] if stock.earning_metrics else None
-    if not earning_metric:
-        raise HTTPException(status_code=404, detail="Earning metric not found")
+def _get_deep_size(obj, seen: set | None = None) -> int:
+    """Recursively calculate the memory footprint of a Python object (in bytes)."""
+    size = sys.getsizeof(obj)
+    if seen is None:
+        seen = set()
+    obj_id = id(obj)
+    if obj_id in seen:
+        return 0
+    seen.add(obj_id)
 
-    if stock.earning_metrics:
-        date_str = stock.earning_metrics[0].Date  
-        try:
-            dates = ast.literal_eval(date_str)
-        except Exception:
-            dates = []
+    if isinstance(obj, dict):
+        size += sum(_get_deep_size(k, seen) + _get_deep_size(v, seen) for k, v in obj.items())
+    elif hasattr(obj, "__dict__"):
+        size += _get_deep_size(vars(obj), seen)
+    elif hasattr(obj, "__iter__") and not isinstance(obj, (str, bytes, bytearray)):
+        size += sum(_get_deep_size(i, seen) for i in obj)
+    return size
+
+
+def _track_read_and_data_usage(db: Session, user_id: str, data_obj, read_inc: int = 1) -> None:
+    """Increment today's ReadHistory.reads and data_used (in MB)."""
+    today = date.today()
+    mb_used = round(_get_deep_size(data_obj) / (1024 * 1024), 4)
+
+    record = db.query(ReadHistory).filter_by(user_id=user_id, date=today).first()
+    if record:
+        record.reads += read_inc
+        record.data_used += mb_used
     else:
-        dates = []
-
-    # Build the response in the required format
-    return {
-        "id": earning_metric.id,
-        "OperatingRevenue": parse_metric_with_dates(earning_metric.OperatingRevenue, dates),
-        "EBIT_cagr": earning_metric.EBIT_cagr,
-        "EBITDA": parse_metric_with_dates(earning_metric.EBITDA, dates),
-        "EBITDA_cagr": earning_metric.EBITDA_cagr,
-        "OperatingRevenue_Cagr": earning_metric.OperatingRevenue_Cagr,
-        "operatingMargins": parse_metric_with_dates(earning_metric.operatingMargins, dates),
-        "OperatingProfit": parse_metric_with_dates(earning_metric.OperatingProfit, dates),
-        "epsTrailingTwelveMonths": parse_metric_with_dates(earning_metric.epsTrailingTwelveMonths, dates),
-        "epsForward": earning_metric.epsForward,
-        "NetIncome_cagr": earning_metric.NetIncome_cagr,
-        "FCFF_Cagr": earning_metric.FCFF_Cagr,
-        "NetIncome": parse_metric_with_dates(earning_metric.NetIncome, dates),
-    }
+        record = ReadHistory(user_id=user_id, reads=read_inc, data_used=mb_used, date=today)
+        db.add(record)
+    db.commit()
 
 
+# ------------------------------------------------------
+# 📈  Helper to pair metrics with dates
+# ------------------------------------------------------
 
-@router.get("/expenses/{ticker}", response_model=ExpensesSchema)
-def get_expenses(ticker: str, db: Session = Depends(get_db)):
-    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-    if not stock or not stock.expenses:
-        raise HTTPException(status_code=404, detail="Expenses not found")
-    expenses = stock.expenses[0]
-
-    # Extract dates for each metric
-    capex_dates = []
-    earnings_dates = []
-    if stock.financials and stock.financials[0].Date_BalanceSheet:
-        try:
-            capex_dates = ast.literal_eval(stock.financials[0].Date_BalanceSheet)
-        except Exception:
-            capex_dates = []
-    if stock.earning_metrics and stock.earning_metrics[0].Date:
-        try:
-            earnings_dates = ast.literal_eval(stock.earning_metrics[0].Date)
-        except Exception:
-            earnings_dates = []
-
-    return {
-        "id": expenses.id,
-        "CapitalExpenditure_cagr": expenses.CapitalExpenditure_cagr,
-        "dividendPayoutratio": expenses.dividendPayoutratio,
-        "TaxRate": expenses.TaxRate,
-        "CapitalExpenditure": parse_metric_with_dates(expenses.CapitalExpenditure, capex_dates),
-        "InterestExpense_cagr": expenses.InterestExpense_cagr,
-        "CurrentDebt_cagr": expenses.CurrentDebt_cagr,
-        "EBIT": parse_metric_with_dates(expenses.EBIT, earnings_dates),
-        "Operating_Expense": parse_metric_with_dates(expenses.Operating_Expense, earnings_dates),
-        "Intrest_Expense": parse_metric_with_dates(expenses.Intrest_Expense, earnings_dates),
-        "WACC": expenses.WACC,
-        "stock_id": expenses.stock_id,
-    }
-
-@router.get("/financials/{ticker}", response_model=FinancialsSchema)
-def get_financials(ticker: str, db: Session = Depends(get_db)):
-    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-    if not stock or not stock.financials:
-        raise HTTPException(status_code=404, detail="Financials not found")
-    financials = stock.financials[0]
-
-    # Extract dates for each metric
-    balance_dates = []
-    cashflow_dates = []
-    days_dates = []
+def _parse_metric_with_dates(metric_str: str | None, dates: list[str]):
     try:
-        if financials.Date_BalanceSheet:
-            balance_dates = ast.literal_eval(financials.Date_BalanceSheet)
-    except Exception:
-        balance_dates = []
-    try:
-        if financials.Date_cashflow:
-            cashflow_dates = ast.literal_eval(financials.Date_cashflow)
-    except Exception:
-        cashflow_dates = []
-    try:
-        if hasattr(stock, "Days") and stock.Days and stock.Days[0].Date:
-            days_dates = ast.literal_eval(stock.Days[0].Date)
-    except Exception:
-        days_dates = []
-
-    return {
-        "id": financials.id,
-        "RetainedEarnings_cagr": financials.RetainedEarnings_cagr,
-        "Date_BalanceSheet": financials.Date_BalanceSheet,
-        "EquityCapital": parse_metric_with_dates(financials.EquityCapital, balance_dates),
-        "Date_cashflow": financials.Date_cashflow,
-        "RetainedEarnings": parse_metric_with_dates(financials.RetainedEarnings, balance_dates),
-        "UnusualExpense": parse_metric_with_dates(financials.UnusualExpense, balance_dates),
-        "DepreciationAmortization": parse_metric_with_dates(financials.DepreciationAmortization, balance_dates),
-        "WorkingCapital": parse_metric_with_dates(financials.WorkingCapital, balance_dates),
-        "CashfromFinancingActivities": parse_metric_with_dates(financials.CashfromFinancingActivities, cashflow_dates),
-        "CashfromInvestingActivities": parse_metric_with_dates(financials.CashfromInvestingActivities, cashflow_dates),
-        "CashFromOperatingActivities": parse_metric_with_dates(financials.CashFromOperatingActivities, cashflow_dates),
-        "TotalReceivablesNet": parse_metric_with_dates(financials.TotalReceivablesNet, balance_dates),
-        "TotalAssets": parse_metric_with_dates(financials.TotalAssets, balance_dates),
-        "FixedAssets": parse_metric_with_dates(financials.FixedAssets, balance_dates),
-        "TotalLiabilities": parse_metric_with_dates(financials.TotalLiabilities, balance_dates),
-        "TotalDebt": parse_metric_with_dates(financials.TotalDebt, balance_dates),
-        "ROCE": parse_metric_with_dates(financials.ROCE, days_dates),
-        "stock_id": financials.stock_id,
-    }
-
-@router.get("/quaterlyresult/{ticker}", response_model=QuaterlyresultSchema)
-def get_quaterlyresult(ticker: str, db: Session = Depends(get_db)):
-    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-    if not stock or not stock.quaterly_results:
-        raise HTTPException(status_code=404, detail="Quaterly result not found")
-    result = stock.quaterly_results[0]
-    try:
-        dates = ast.literal_eval(result.Date)
-    except Exception:
-        dates = []
-
-    return {
-        "id": result.id,
-        "stock_id": result.stock_id,
-        "ticker": result.ticker,
-        "Date": result.Date,
-        "Sales_Quaterly": parse_metric_with_dates(result.Sales_Quaterly, dates),
-        "Expenses_Quaterly": parse_metric_with_dates(result.Expenses_Quaterly, dates),
-        "OperatingProfit_Quaterly": parse_metric_with_dates(result.OperatingProfit_Quaterly, dates),
-        "EPS_in_Rs_Quaterly": parse_metric_with_dates(result.EPS_in_Rs_Quaterly, dates),
-        "Profit_before_tax_Quaterly": parse_metric_with_dates(result.Profit_before_tax_Quaterly, dates),
-        "NetProfit_Quaterly": parse_metric_with_dates(result.NetProfit_Quaterly, dates),
-        "Interest_Quaterly": parse_metric_with_dates(result.Interest_Quaterly, dates),
-        "OPM_Percent_Quaterly": parse_metric_with_dates(result.OPM_Percent_Quaterly, dates),
-        "Depreciation_Quaterly": parse_metric_with_dates(result.Depreciation_Quaterly, dates),
-    }
-
-@router.get("/shareholding/{ticker}", response_model=ShareholdingSchema)
-def get_shareholding(ticker: str, db: Session = Depends(get_db)):
-    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-    if not stock or not stock.shareholdings:
-        raise HTTPException(status_code=404, detail="Shareholding not found")
-    shareholding = stock.shareholdings[0]
-    try:
-        dates = ast.literal_eval(shareholding.Date)
-    except Exception:
-        dates = []
-
-    return {
-        "id": shareholding.id,
-        "stock_id": shareholding.stock_id,
-        "Date": shareholding.Date,
-        "Promoters": parse_metric_with_dates(shareholding.Promoters, dates),
-        "FIIs": parse_metric_with_dates(shareholding.FIIs, dates),
-        "DIIs": parse_metric_with_dates(shareholding.DIIs, dates),
-        "Public": parse_metric_with_dates(shareholding.Public, dates),
-        "Government": parse_metric_with_dates(shareholding.Government, dates),
-        "Others": parse_metric_with_dates(shareholding.Others, dates),
-        "ShareholdersCount": parse_metric_with_dates(shareholding.ShareholdersCount, dates),
-    }
-
-def parse_metric_with_dates(metric_str, dates):
-    try:
-        values = ast.literal_eval(metric_str)
-        return [
-            {"Date": date, "Value": float(val)}
-            for date, val in zip(dates, values)
-        ]
+        values = ast.literal_eval(metric_str or "[]")
+        return [{"Date": d, "Value": float(v)} for d, v in zip(dates, values)]
     except Exception:
         return []
 
+
+# ------------------------------------------------------
+# 🏭  Endpoints with usage tracking
+# ------------------------------------------------------
+
+@router.get("/earning-metric/{ticker}", response_model=EarningMetricSchema)
+def get_earning_metric(
+    ticker: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    if not stock or not stock.earning_metrics:
+        raise HTTPException(status_code=404, detail="Earning metric not found")
+
+    em = stock.earning_metrics[0]
+    dates = ast.literal_eval(em.Date or "[]") if em.Date else []
+
+    response = {
+        "id": em.id,
+        "OperatingRevenue": _parse_metric_with_dates(em.OperatingRevenue, dates),
+        "EBIT_cagr": em.EBIT_cagr,
+        "EBITDA": _parse_metric_with_dates(em.EBITDA, dates),
+        "EBITDA_cagr": em.EBITDA_cagr,
+        "OperatingRevenue_Cagr": em.OperatingRevenue_Cagr,
+        "operatingMargins": _parse_metric_with_dates(em.operatingMargins, dates),
+        "OperatingProfit": _parse_metric_with_dates(em.OperatingProfit, dates),
+        "epsTrailingTwelveMonths": _parse_metric_with_dates(em.epsTrailingTwelveMonths, dates),
+        "epsForward": em.epsForward,
+        "NetIncome_cagr": em.NetIncome_cagr,
+        "FCFF_Cagr": em.FCFF_Cagr,
+        "NetIncome": _parse_metric_with_dates(em.NetIncome, dates),
+    }
+
+    _track_read_and_data_usage(db, current_user.id, response)
+    return response
+
+
+@router.get("/expenses/{ticker}", response_model=ExpensesSchema)
+def get_expenses(
+    ticker: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    if not stock or not stock.expenses:
+        raise HTTPException(status_code=404, detail="Expenses not found")
+
+    exp = stock.expenses[0]
+    capex_dates = ast.literal_eval(stock.financials[0].Date_BalanceSheet or "[]") if stock.financials else []
+    earnings_dates = ast.literal_eval(stock.earning_metrics[0].Date or "[]") if stock.earning_metrics else []
+
+    response = {
+        "id": exp.id,
+        "CapitalExpenditure_cagr": exp.CapitalExpenditure_cagr,
+        "dividendPayoutratio": exp.dividendPayoutratio,
+        "TaxRate": exp.TaxRate,
+        "CapitalExpenditure": _parse_metric_with_dates(exp.CapitalExpenditure, capex_dates),
+        "InterestExpense_cagr": exp.InterestExpense_cagr,
+        "CurrentDebt_cagr": exp.CurrentDebt_cagr,
+        "EBIT": _parse_metric_with_dates(exp.EBIT, earnings_dates),
+        "Operating_Expense": _parse_metric_with_dates(exp.Operating_Expense, earnings_dates),
+        "Intrest_Expense": _parse_metric_with_dates(exp.Intrest_Expense, earnings_dates),
+        "WACC": exp.WACC,
+        "stock_id": exp.stock_id,
+    }
+
+    _track_read_and_data_usage(db, current_user.id, response)
+    return response
+
+
+@router.get("/financials/{ticker}", response_model=FinancialsSchema)
+def get_financials(
+    ticker: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    if not stock or not stock.financials:
+        raise HTTPException(status_code=404, detail="Financials not found")
+
+    fin = stock.financials[0]
+    balance_dates = ast.literal_eval(fin.Date_BalanceSheet or "[]") if fin.Date_BalanceSheet else []
+    cashflow_dates = ast.literal_eval(fin.Date_cashflow or "[]") if fin.Date_cashflow else []
+    days_dates = ast.literal_eval(stock.Days[0].Date or "[]") if stock.Days else []
+
+    response = {
+        "id": fin.id,
+        "RetainedEarnings_cagr": fin.RetainedEarnings_cagr,
+        "Date_BalanceSheet": fin.Date_BalanceSheet,
+        "EquityCapital": _parse_metric_with_dates(fin.EquityCapital, balance_dates),
+        "Date_cashflow": fin.Date_cashflow,
+        "RetainedEarnings": _parse_metric_with_dates(fin.RetainedEarnings, balance_dates),
+        "UnusualExpense": _parse_metric_with_dates(fin.UnusualExpense, balance_dates),
+        "DepreciationAmortization": _parse_metric_with_dates(fin.DepreciationAmortization, balance_dates),
+        "WorkingCapital": _parse_metric_with_dates(fin.WorkingCapital, balance_dates),
+        "CashfromFinancingActivities": _parse_metric_with_dates(fin.CashfromFinancingActivities, cashflow_dates),
+        "CashfromInvestingActivities": _parse_metric_with_dates(fin.CashfromInvestingActivities, cashflow_dates),
+        "CashFromOperatingActivities": _parse_metric_with_dates(fin.CashFromOperatingActivities, cashflow_dates),
+        "TotalReceivablesNet": _parse_metric_with_dates(fin.TotalReceivablesNet, balance_dates),
+        "TotalAssets": _parse_metric_with_dates(fin.TotalAssets, balance_dates),
+        "FixedAssets": _parse_metric_with_dates(fin.FixedAssets, balance_dates),
+        "TotalLiabilities": _parse_metric_with_dates(fin.TotalLiabilities, balance_dates),
+        "TotalDebt": _parse_metric_with_dates(fin.TotalDebt, balance_dates),
+        "ROCE": _parse_metric_with_dates(fin.ROCE, days_dates),
+        "stock_id": fin.stock_id,
+    }
+
+    _track_read_and_data_usage(db, current_user.id, response)
+    return response
+
+
+@router.get("/quaterlyresult/{ticker}", response_model=QuaterlyresultSchema)
+def get_quaterlyresult(
+    ticker: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    if not stock or not stock.quaterly_results:
+        raise HTTPException(status_code=404, detail="Quarterly result not found")
+
+    res = stock.quaterly_results[0]
+    dates = ast.literal_eval(res.Date or "[]") if res.Date else []
+
+    response = {
+        "id": res.id,
+        "stock_id": res.stock_id,
+        "ticker": res.ticker,
+        "Date": res.Date,
+        "Sales_Quaterly": _parse_metric_with_dates(res.Sales_Quaterly, dates),
+        "Expenses_Quaterly": _parse_metric_with_dates(res.Expenses_Quaterly, dates),
+        "OperatingProfit_Quaterly": _parse_metric_with_dates(res.OperatingProfit_Quaterly, dates),
+        "EPS_in_Rs_Quaterly": _parse_metric_with_dates(res.EPS_in_Rs_Quaterly, dates),
+        "Profit_before_tax_Quaterly": _parse_metric_with_dates(res.Profit_before_tax_Quaterly, dates),
+        "NetProfit_Quaterly": _parse_metric_with_dates(res.NetProfit_Quaterly, dates),
+        "Interest_Quaterly": _parse_metric_with_dates(res.Interest_Quaterly, dates),
+        "OPM_Percent_Quaterly": _parse_metric_with_dates(res.OPM_Percent_Quaterly, dates),
+        "Depreciation_Quaterly": _parse_metric_with_dates(res.Depreciation_Quaterly, dates),
+    }
+
+    _track_read_and_data_usage(db, current_user.id, response)
+    return response
+
+@router.get("/shareholding/{ticker}", response_model=ShareholdingSchema , )
+def get_shareholding(
+    ticker: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    if not stock or not stock.shareholdings:
+        raise HTTPException(status_code=404, detail="Shareholding not found")
+
+    sh = stock.shareholdings[0]
+    dates = ast.literal_eval(sh.Date or "[]") if sh.Date else []
+
+    response = {
+        "id": sh.id,
+        "stock_id": sh.stock_id,
+        "Date": sh.Date,
+        "Promoters": _parse_metric_with_dates(sh.Promoters, dates),
+        "FIIs": _parse_metric_with_dates(sh.FIIs, dates),
+        "DIIs": _parse_metric_with_dates(sh.DIIs, dates),
+        "Public": _parse_metric_with_dates(sh.Public, dates),
+        "Government": _parse_metric_with_dates(sh.Government, dates),
+        "Others": _parse_metric_with_dates(sh.Others, dates),
+        "ShareholdersCount": _parse_metric_with_dates(sh.ShareholdersCount, dates),
+    }
+
+    _track_read_and_data_usage(db, current_user.id, response)
+    return response
+
 @router.get("/days/{ticker}", response_model=DaysSchema)
-def get_days(ticker: str, db: Session = Depends(get_db)):
+def get_days(
+    ticker: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
     if not stock or not stock.Days:
         raise HTTPException(status_code=404, detail="Days data not found")
-    days = stock.Days[0]
-    try:
-        dates = ast.literal_eval(days.Date)
-    except Exception:
-        dates = []
 
-    return {
+    days = stock.Days[0]
+    dates = ast.literal_eval(days.Date or "[]") if days.Date else []
+
+    response = {
         "id": days.id,
         "stock_id": days.stock_id,
-        "InventoryDays": parse_metric_with_dates(days.InventoryDays, dates),
-        "DebtorDays": parse_metric_with_dates(days.DebtorDays, dates),
+        "InventoryDays": _parse_metric_with_dates(days.InventoryDays, dates),
+        "DebtorDays": _parse_metric_with_dates(days.DebtorDays, dates),
         "Date": days.Date,
-        "WorkingCapitalDays": parse_metric_with_dates(days.WorkingCapitalDays, dates),
-        "DaysPayable": parse_metric_with_dates(days.DaysPayable, dates),
-        "CashConversionCycle": parse_metric_with_dates(days.CashConversionCycle, dates),
+        "WorkingCapitalDays": _parse_metric_with_dates(days.WorkingCapitalDays, dates),
+        "DaysPayable": _parse_metric_with_dates(days.DaysPayable, dates),
+        "CashConversionCycle": _parse_metric_with_dates(days.CashConversionCycle, dates),
     }
+
+    _track_read_and_data_usage(db, current_user.id, response)
+    return response

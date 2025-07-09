@@ -2,10 +2,30 @@ import numpy as np
 import ast
 
 
-def parse_data(field):
-    try:
-        return [float(x) for x in ast.literal_eval(field)]
-    except (ValueError, SyntaxError, TypeError):
+def parse_data(data_string):
+    if data_string is None:
+        return []
+
+    if isinstance(data_string, (int, float)):
+        return [float(data_string)]
+
+    elif isinstance(data_string, str):
+        cleaned_data = data_string.strip().replace("[", "").replace("]", "").replace("'", "").replace("%", "")
+        elements = cleaned_data.split(",")
+        result = []
+
+        for element in elements:
+            element = element.strip()
+            if element == "":
+                element = "0"
+            try:
+                number = float(element.replace(",", ""))
+                result.append(number)
+            except ValueError:
+                result.append(element)
+        return result
+
+    else:
         return []
 
 
@@ -41,14 +61,13 @@ def calculate_ratios_from_annual_data(stock):
 
     # Use totalCash if available, else fallback to RetainedEarnings (not ideal, but for demo)
     cash_data = parse_data(
-        getattr(financials, "totalCash", "[]")
-        or getattr(financials, "RetainedEarnings", "[]")
+       financials.RetainedEarnings
     )
     cash = cash_data[-1] if cash_data else 0
+    print(getattr(financials, "RetainedEarnings", "[]"))
 
     total_debt_data = parse_data(financials.TotalDebt)
     total_debt = total_debt_data[-1] if total_debt_data else 0
-
     ebitda_data = parse_data(earning_metrics.EBITDA)
     ebitda = ebitda_data[-1] if ebitda_data else 0
 
@@ -97,9 +116,10 @@ def calculate_ratios_from_annual_data(stock):
 
     shareholdersEquity = equity_capital + cash
     growth_rate = getattr(earning_metrics, "OperatingRevenue_Cagr", 0)
-
     ratios = {}
+    print(total_debt , equity_capital)
     try:
+       
         ratios["PE"] = (
             current_price / earnings_per_share if earnings_per_share > 0 else None
         )
@@ -109,7 +129,8 @@ def calculate_ratios_from_annual_data(stock):
         ratios["EV"] = ev
         ratios["EV/EBITDA"] = ev / ebitda if ebitda > 0 else None
         ratios["PEG"] = (
-            (ratios["PE"] / (growth_rate * 100)) if growth_rate > 0 else None
+            
+            ( (ratios["PE"]  if ratios["PE"] else 0)/ (growth_rate)) if growth_rate > 0 else None
         )
         ratios["FCFF_Yield"] = fcff / market_cap if market_cap > 0 else None
         ratios["CurrentRatio"] = (
@@ -122,7 +143,7 @@ def calculate_ratios_from_annual_data(stock):
         ratios["Avg_NetProfit_QoQ_Growth_Percent"] = safe_mean(netprofit_qoq)
         ratios["Avg_OperatingProfit_QoQ_Growth_Percent"] = safe_mean(op_qoq)
         ratios["Avg_EPS_QoQ_Growth_Percent"] = safe_mean(eps_qoq)
-        print(ratios)
+    
     except ZeroDivisionError:
         pass
 
@@ -134,121 +155,120 @@ def calculate_ratios_from_annual_data(stock):
 
 # Example usage
 data = {
-    "id": "eb15fa85-3115-474f-9499-52df96368a9f",
-    "Ticker": "THOMASCOOK",
-    "CurrentPrice": 170,
-    "marketCap": 0,
-    "Description": "Thomas Cook (India) Limited offers integrated travel services in India and internationally. It operates through financial services, travel and related services, vacation ownership and resorts business, and digiphoto imaging services segments. The financial services segment engages in the wholesale, and retail purchase and sale of foreign currencies and paid documents. Its service segment is involved in tour operations, travel management, visa services, and travel insurance and related activities. Thomas Cook (India) Limited was founded in 1881 and is based in Mumbai, India. Thomas Cook (India) Limited operates as a subsidiary of Fairbridge Capital (Mauritius) Limited.",
-    "CompanyName": "Thomas Cook (India) Limited",
-    "sector": "Consumer Cyclical",
-    "beta": 0.421,
-    "Industry": "Travel Services",
+    "id": "76f99c46-d23b-431f-8513-ca52c967366e",
+    "Ticker": "RELIANCE",
+    "CurrentPrice": 1444,
+    "marketCap": 19534163703808,
+    "Description": "Reliance Industries Limited engages in hydrocarbon exploration and production, oil and chemicals, textile, retail, digital, material and composites, renewables, and financial services businesses worldwide. It operates through Oil to Chemicals, Oil and Gas, Retail, Digital Services, and Others segments. The company produces and markets petroleum products, such as liquefied petroleum gas, propylene, naphtha, gasoline, jet/aviation turbine fuel, kerosene oil, diesel, sulphur, and petroleum coke. It also provides petrochemicals, including high-density and low-density polyethylene (PE), linear low-density PE, polyester fibers and yarns, polypropylene, polyvinyl chloride, purified terephthalic acid, ethylene glycols and oxide, paraxylene, ortho xylene, benzene, linear alkyl benzene and paraffin, poly butadiene rubber, styrene butadiene rubber, butyl rubber, and polyethylene terephthalate. In addition, the company manufactures and markets yarns, fabrics, apparel, and auto furnishings; explores, develops, and produces crude oil and natural gas; and operates various stores comprising neighborhood, supermarket, hypermarket, wholesale cash and carry, specialty, online stores, as well as stores that offer apparel, beauty and cosmetics, accessories, footwear, consumer electronics, connectivity products, and others. Further, the company provides range of digital television, gaming, broadband, and telecommunication services under the Jio brand name; and non-banking financial and insurance broking services. Additionally, it operates news and entertainment platforms, and Network18 and television channels; publishes magazines; and offers highway hospitality and fleet management services. The company was founded in 1957 and is based in Mumbai, India.",
+    "CompanyName": "Reliance Industries Limited",
+    "sector": "Energy",
+    "beta": 0.332,
+    "Industry": "Oil & Gas Refining & Marketing",
     "updated": None,
-    "FloatShares": 152157579,
-    "sharesOutstanding": 465700000,
+    "FloatShares": 5807754519,
+    "sharesOutstanding": 13532499968,
     "channels": [],
     "technicals": [],
     "earning_metrics": [
-        {
-            "id": "56061279-874c-4f1c-bb98-a8c90ae3dcfe",
-            "OperatingRevenue": "[1287.0, 3244.0, 6094.0, 8762.0, 11248.0, 6603.0, 6833.0, 795.0, 1888.0, 5048.0, 7299.0, 8140.0]",
-            "EBIT_cagr": 2184.306803963013,
-            "EBITDA": "[147.0, 243.0, 184.0, 338.0, 372.0, 83.0, 107.0, -352.0, -187.0, 178.0, 437.0, 477.0]",
-            "EBITDA_cagr": -39.1242355363383,
-            "OperatingRevenue_Cagr": 49.71452626903568,
-            "operatingMargins": "[11.0, 7.0, 3.0, 4.0, 3.0, 1.0, 2.0, -44.0, -10.0, 4.0, 6.0, 6.0]",
-            "OperatingProfit": "[147.0, 243.0, 184.0, 338.0, 372.0, 83.0, 107.0, -352.0, -187.0, 178.0, 437.0, 477.0]",
-            "epsTrailingTwelveMonths": "[2.51, 3.31, -2.13, 1.18, 161.21, 2.29, -0.02, -6.72, -5.18, 0.14, 5.5, 5.4]",
-            "epsForward": 4570.515311353264,
-            "NetIncome_cagr": 954.5846157088806,
-            "FCFF_Cagr": 3792.6349730466304,
-            "NetIncome": "[69.0, 112.0, -59.0, 86.0, 6131.0, 89.0, -18.0, -295.0, -254.0, 10.0, 271.0, 258.0]",
-        }
+      {
+        "id": "4f409413-c436-4692-8617-9d52dbbd9a51",
+        "OperatingRevenue": "[433521.0, 374372.0, 272583.0, 303954.0, 390823.0, 568337.0, 596679.0, 466307.0, 694673.0, 876396.0, 899041.0, 964693.0]",
+        "EBIT_cagr": 13.424547169082,
+        "EBITDA": "[34935.0, 37449.0, 41781.0, 46307.0, 64315.0, 84250.0, 89266.0, 80790.0, 108581.0, 142318.0, 162498.0, 165444.0]",
+        "EBITDA_cagr": 16.1274201640351,
+        "OperatingRevenue_Cagr": 10.2574768773343,
+        "operatingMargins": "[8.0, 10.0, 15.0, 15.0, 16.0, 15.0, 15.0, 17.0, 16.0, 16.0, 18.0, 17.0]",
+        "OperatingProfit": "[34935.0, 37449.0, 41781.0, 46307.0, 64315.0, 84250.0, 89266.0, 80790.0, 108581.0, 142318.0, 162498.0, 165444.0]",
+        "epsTrailingTwelveMonths": "[16.31, 17.07, 21.51, 21.55, 26.69, 29.28, 29.1, 38.75, 44.87, 49.29, 51.45, 51.47]",
+        "epsForward": 11.5476205721181,
+        "NetIncome_cagr": 12.934727201538,
+        "FCFF_Cagr": 0,
+        "NetIncome": "[22548.0, 23640.0, 29861.0, 29833.0, 36080.0, 39837.0, 39880.0, 53739.0, 67845.0, 74088.0, 79020.0, 81309.0]"
+      }
     ],
     "comparables": [],
     "expenses": [
-        {
-            "id": "17f2bad7-6301-421b-a400-8a0ee0ecacad",
-            "CapitalExpenditure_cagr": 0,
-            "dividendPayoutratio": "[0.0, 15.0, -18.0, 32.0, 0.0, 16.0, 0.0, 0.0, 0.0, 291.0, 11.0, 8.0]",
-            "CapitalExpenditure": "[0.0,-898.9369863013699,90.34246575342468,-894.9808219178083,1533.2328767123288,-649.6958904109588,-283.0219178082193,-280.1397260273973,94.77260273972604,262.10410958904106,319.36712328767135,-630.709589041096]",
-            "InterestExpense_cagr": 17.657961149947923,
-            "CurrentDebt_cagr": 0,
-            "EBIT": "[102.0, 171.0, 1.0, 199.0, 6091.0, 110.0, -69.0, -416.0, -322.0, 27.0, 345.0, 378.0]",
-            "Operating_Expense": "[1140.0, 3001.0, 5910.0, 8425.0, 10876.0, 6520.0, 6726.0, 1147.0, 2075.0, 4870.0, 6862.0, 7663.0]",
-            "Intrest_Expense": "[34.0, 71.0, 92.0, 132.0, 149.0, 73.0, 101.0, 62.0, 62.0, 89.0, 99.0, 95.0]",
-            "WACC": -2.367210377952314,
-        }
+      {
+        "id": "9c0d7f90-9513-4ece-a45e-b6ef8a5e2349",
+        "CapitalExpenditure_cagr": 0,
+        "dividendPayoutratio": "[12.0, 12.0, 10.0, 11.0, 10.0, 10.0, 10.0, 9.0, 9.0, 9.0, 10.0, 11.0]",
+        "CapitalExpenditure": "[np.float64(-0.0), np.float64(19345.852054794523), np.float64(20973.882191780824), np.float64(16425.92602739726), np.float64(-168589.14246575342), np.float64(-44351.830136986304), np.float64(-73500.43835616438), np.float64(-189039.07671232877), np.float64(-46467.58082191781), np.float64(-100139.01369863014), np.float64(-52158.50410958904), np.float64(-392190.14520547946)]",
+        "InterestExpense_cagr": 24.7223252908391,
+        "CurrentDebt_cagr": 0,
+        "EBIT": "[28763.0, 31114.0, 38737.0, 40034.0, 49426.0, 55227.0, 53606.0, 55461.0, 83815.0, 94464.0, 104727.0, 106017.0]",
+        "Operating_Expense": "[398586.0, 336923.0, 230802.0, 257647.0, 326508.0, 484087.0, 507413.0, 385517.0, 586092.0, 734078.0, 736543.0, 799249.0]",
+        "Intrest_Expense": "[3836.0, 3316.0, 3691.0, 3849.0, 8052.0, 16495.0, 22027.0, 21189.0, 14584.0, 19571.0, 23118.0, 24269.0]",
+        "WACC": 0.0741038100902498
+      }
     ],
     "financials": [
-        {
-            "id": "2b4dbe12-d5fb-4b0b-b552-47fcd0c6e0d2",
-            "RetainedEarnings_cagr": 40.847069475052024,
-            "RetainedEarnings": "[663.0, 1302.0, 1211.0, 1950.0, 8634.0, 8856.0, 1627.0, 1891.0, 1651.0, 1666.0, 2010.0, 2213.0]",
-            "EquityCapital": "[25.0, 27.0, 37.0, 37.0, 37.0, 37.0, 38.0, 38.0, 44.0, 47.0, 47.0, 47.0]",
-            "UnusualExpense": "[6.0, 41.0, -31.0, 84.0, 6005.0, 168.0, 76.0, 146.0, 55.0, 62.0, 134.0, 138.0]",
-            "DepreciationAmortization": "[18.0, 41.0, 61.0, 91.0, 137.0, 67.0, 151.0, 148.0, 129.0, 124.0, 128.0, 142.0]",
-            "WorkingCapital": "[-31.734246575342464, 142.2027397260274, -651.1397260273973, -696.158904109589, -1109.3917808219178, -1139.695890410959, -1160.6739726027397, -801.5342465753424, -848.3068493150685, -1106.4109589041095, -1619.7780821917809, -1115.0684931506848]",
-            "CashfromFinancingActivities": "[88.0, 565.0, 548.0, 161.0, 477.0, -167.0, -170.0, 335.0, -85.0, -230.0, -291.0, -183.0]",
-            "CashfromInvestingActivities": "[-366.0, -607.0, -165.0, -253.0, -458.0, -263.0, -184.0, 351.0, -123.0, -179.0, -437.0, -329.0]",
-            "CashFromOperatingActivities": "[219.0, 131.0, 383.0, 273.0, -244.0, 253.0, 120.0, -581.0, -139.0, 649.0, 829.0, 717.0]",
-            "TotalReceivablesNet": "0",
-            "TotalAssets": "[1523.0, 3126.0, 4899.0, 6965.0, 12096.0, 13008.0, 5492.0, 4736.0, 4615.0, 5657.0, 6364.0, 7116.0]",
-            "FixedAssets": "[475.0, 1200.0, 1903.0, 2843.0, 1723.0, 2403.0, 2707.0, 2628.0, 2580.0, 2576.0, 2770.0, 2896.0]",
-            "TotalLiabilities": "[1523.0, 3126.0, 4899.0, 6965.0, 12096.0, 13008.0, 5492.0, 4736.0, 4615.0, 5657.0, 6364.0, 7116.0]",
-            "TotalDebt": "[182.0, 380.0, 1042.0, 1404.0, 425.0, 361.0, 762.0, 612.0, 598.0, 539.0, 418.0, 465.0]",
-        }
+      {
+        "id": "055c26ed-74a4-489c-b5f7-96e02479bd20",
+        "RetainedEarnings_cagr": 15.041967092728,
+        "RetainedEarnings": "[195747.0, 215556.0, 228608.0, 260750.0, 287584.0, 381186.0, 442827.0, 693727.0, 772720.0, 709106.0, 786715.0, 829668.0]",
+        "EquityCapital": "[2940.0, 2943.0, 2948.0, 2959.0, 5922.0, 5926.0, 6339.0, 6445.0, 6765.0, 6766.0, 6766.0, 13532.0]",
+        "UnusualExpense": "[8865.0, 8528.0, 12212.0, 9222.0, 9869.0, 8406.0, 8570.0, 22432.0, 19600.0, 12020.0, 16179.0, 17978.0]",
+        "DepreciationAmortization": "[11201.0, 11547.0, 11565.0, 11646.0, 16706.0, 20934.0, 22203.0, 26572.0, 29782.0, 40303.0, 50832.0, 53136.0]",
+        "WorkingCapital": "[-3563.186301369863, -37950.03835616438, -87375.9205479452, -117417.84657534247, -154187.70410958905, -104324.87397260274, -165108.43561643836, 15330.64109589041, -24741.77808219178, -21609.764383561644, -24631.260273972603, 55502.88493150685]",
+        "CashfromFinancingActivities": "[13713.0, 8444.0, -3210.0, 8617.0, -2001.0, 55906.0, -2541.0, 101904.0, 17289.0, 10455.0, -16646.0, -31891.0]",
+        "CashfromInvestingActivities": "[-73070.0, -64706.0, -36186.0, -66201.0, -68192.0, -94507.0, -72497.0, -142385.0, -109162.0, -93001.0, -113581.0, -137535.0]",
+        "CashFromOperatingActivities": "[43261.0, 34374.0, 38134.0, 49550.0, 71459.0, 42346.0, 94877.0, 26958.0, 110654.0, 115032.0, 158788.0, 178703.0]",
+        "TotalReceivablesNet": "0",
+        "TotalAssets": "[428843.0, 504486.0, 598997.0, 706802.0, 811273.0, 997630.0, 1163015.0, 1320065.0, 1498622.0, 1605882.0, 1755048.0, 1950121.0]",
+        "FixedAssets": "[141417.0, 156458.0, 184910.0, 198526.0, 403885.0, 398374.0, 532658.0, 541258.0, 627798.0, 724805.0, 779985.0, 1092041.0]",
+        "TotalLiabilities": "[428843.0, 504486.0, 598997.0, 706802.0, 811273.0, 997630.0, 1163015.0, 1320065.0, 1498622.0, 1605882.0, 1755048.0, 1950121.0]",
+        "TotalDebt": "[138761.0, 168251.0, 194714.0, 217475.0, 239843.0, 307714.0, 355133.0, 278962.0, 319158.0, 451664.0, 458991.0, 369575.0]"
+      }
     ],
     "metrics": [
-        {
-            "id": "45fe277d-5ee0-4fe5-80b3-b2abf4fe7388",
-            "ROE": 0.026644599997815554,
-            "FCFF": "[-869.0, -1313.0630136986301, -587679.3424657534, -6224.0191780821915, -1479.2328767123288, -411.3041095890412, 7978.021917808219, 1559.1397260273973, 1130.2273972602738, -4953.104109589041, -1470.3671232876713, -1692.290410958904]",
-            "ROA": 1.0195081673925208,
-            "ROIC": "[18.0, 17.0, 9.0, 10.0, 6.0, 2.0, 1.0, -14.0, -11.0, 5.0, 19.0, 19.0]",
-            "WACC": -2.367210377952314,
-            "COD": 0.17596689025260454,
-            "ICR": 1.5072125363221254,
-        }
+      {
+        "id": "4ca3a1bd-dddd-4db4-8461-0da855b3ea96",
+        "ROE": 0.103200782109588,
+        "FCFF": "[np.float64(46253.08), np.float64(17548.30794520548), np.float64(20002.187808219176), np.float64(36010.82397260274), np.float64(245926.10246575344), np.float64(98574.2301369863), np.float64(184677.41835616436), np.float64(236550.40671232878), np.float64(168934.6208219178), np.float64(230436.39369863016), np.float64(228285.00410958903), np.float64(589337.5852054795)]",
+        "ROA": 1.98681366227422,
+        "ROIC": "[10.0, 9.0, 10.0, 10.0, 11.0, 12.0, 11.0, 8.0, 8.0, 9.0, 10.0, 9.0]",
+        "WACC": 0.0741038100902498,
+        "COD": 0.044513059361504,
+        "ICR": 5.28689249773803
+      }
     ],
     "Days": [
-        {
-            "id": "40f1704c-3527-4e6b-96ed-bbf5cf39bb42",
-            "InventoryDays": "['', '', '', '', '', '', '', '', '', '', '', '']",
-            "DebtorDays": "[94.0, 73.0, 50.0, 42.0, 28.0, 46.0, 25.0, 59.0, 45.0, 41.0, 32.0, 28.0]",
-            "WorkingCapitalDays": "[-9.0, 16.0, -39.0, -29.0, -36.0, -63.0, -62.0, -368.0, -164.0, -80.0, -81.0, -50.0]",
-            "CashConversionCycle": "[94.0, 73.0, 50.0, 42.0, 28.0, 46.0, 25.0, 59.0, 45.0, 41.0, 32.0, 28.0]",
-        }
+      {
+        "id": "740bf95b-2c20-4051-bea5-b540c95c721f",
+        "InventoryDays": "[57.0, 66.0, 90.0, 84.0, 83.0, 63.0, 67.0, 102.0, 83.0, 87.0, 95.0, 85.0]",
+        "DebtorDays": "[8.0, 5.0, 6.0, 10.0, 16.0, 19.0, 12.0, 15.0, 12.0, 12.0, 13.0, 16.0]",
+        "WorkingCapitalDays": "[-3.0, -37.0, -117.0, -141.0, -144.0, -67.0, -101.0, 12.0, -13.0, -9.0, -10.0, 21.0]",
+        "CashConversionCycle": "[4.0, -2.0, -21.0, -38.0, -46.0, -18.0, -9.0, -19.0, -27.0, 7.0, -3.0, -8.0]"
+      }
     ],
     "support": [],
     "quaterly_results": [
-        {
-            "id": "031d3f6c-db96-46d7-b138-8e8b1c663cc2",
-            "ticker": "THOMASCOOK",
-            "Date": "['Mar 2022', 'Jun 2022', 'Sep 2022', 'Dec 2022', 'Mar 2023', 'Jun 2023', 'Sep 2023', 'Dec 2023', 'Mar 2024', 'Jun 2024', 'Sep 2024', 'Dec 2024', 'Mar 2025']",
-            "Sales_Quaterly": "[522.0, 976.0, 1222.0, 1536.0, 1313.0, 1899.0, 1843.0, 1893.0, 1664.0, 2106.0, 2004.0, 2061.0, 1969.0]",
-            "Expenses_Quaterly": "[530.0, 940.0, 1180.0, 1472.0, 1277.0, 1775.0, 1741.0, 1777.0, 1573.0, 1970.0, 1879.0, 1945.0, 1871.0]",
-            "OperatingProfit_Quaterly": "[-8.0, 36.0, 42.0, 64.0, 36.0, 124.0, 103.0, 116.0, 91.0, 136.0, 125.0, 116.0, 98.0]",
-            "EPS_in_Rs_Quaterly": "[-1.1, -0.12, 0.02, 0.39, -0.15, 1.55, 1.0, 1.75, 1.2, 1.6, 1.38, 1.05, 1.37]",
-            "Profit_before_tax_Quaterly": "[-52.0, -2.0, 5.0, 30.0, -6.0, 101.0, 77.0, 107.0, 61.0, 109.0, 110.0, 71.0, 88.0]",
-            "NetProfit_Quaterly": "[-50.0, -6.0, 0.0, 27.0, -10.0, 71.0, 51.0, 91.0, 58.0, 73.0, 72.0, 47.0, 66.0]",
-            "Interest_Quaterly": "[17.0, 20.0, 19.0, 28.0, 23.0, 26.0, 23.0, 24.0, 26.0, 22.0, 24.0, 26.0, 24.0]",
-            "OPM_Percent_Quaterly": "0",
-            "Depreciation_Quaterly": "[31.0, 30.0, 31.0, 32.0, 30.0, 30.0, 31.0, 33.0, 33.0, 34.0, 35.0, 37.0, 36.0]",
-        }
+      {
+        "id": "2d03aa1b-946e-4565-b7ba-a82c35456aac",
+        "ticker": "RELIANCE",
+        "Date": "['Mar 2022', 'Jun 2022', 'Sep 2022', 'Dec 2022', 'Mar 2023', 'Jun 2023', 'Sep 2023', 'Dec 2023', 'Mar 2024', 'Jun 2024', 'Sep 2024', 'Dec 2024', 'Mar 2025']",
+        "Sales_Quaterly": "[207375.0, 218855.0, 229409.0, 216737.0, 212834.0, 207559.0, 231886.0, 225086.0, 236533.0, 231784.0, 231535.0, 239986.0, 261388.0]",
+        "Expenses_Quaterly": "[176009.0, 181157.0, 198438.0, 181728.0, 174478.0, 169466.0, 190918.0, 184430.0, 194017.0, 193019.0, 192477.0, 196197.0, 217556.0]",
+        "OperatingProfit_Quaterly": "[31366.0, 37698.0, 30971.0, 35009.0, 38356.0, 38093.0, 40968.0, 40656.0, 42516.0, 38765.0, 39058.0, 43789.0, 43832.0]",
+        "EPS_in_Rs_Quaterly": "[11.98, 13.27, 10.09, 11.67, 14.26, 11.83, 12.85, 12.76, 14.01, 11.19, 12.24, 13.7, 14.34]",
+        "Profit_before_tax_Quaterly": "[22411.0, 27034.0, 20347.0, 23002.0, 24081.0, 24294.0, 26493.0, 25833.0, 27720.0, 23234.0, 25037.0, 28643.0, 29103.0]",
+        "NetProfit_Quaterly": "[18021.0, 19443.0, 15512.0, 17806.0, 21327.0, 18258.0, 19878.0, 19641.0, 21243.0, 17445.0, 19323.0, 21930.0, 22611.0]",
+        "Interest_Quaterly": "[3556.0, 3997.0, 4554.0, 5201.0, 5819.0, 5837.0, 5731.0, 5789.0, 5761.0, 5918.0, 6017.0, 6179.0, 6155.0]",
+        "OPM_Percent_Quaterly": "[15.0, 17.0, 14.0, 16.0, 18.0, 18.0, 18.0, 18.0, 18.0, 17.0, 17.0, 18.0, 17.0]",
+        "Depreciation_Quaterly": "[8001.0, 8942.0, 9726.0, 10183.0, 11452.0, 11775.0, 12585.0, 12903.0, 13569.0, 13596.0, 12880.0, 13181.0, 13479.0]"
+      }
     ],
     "shareholdings": [
-        {
-            "id": "ca14fd49-e2f8-483c-803c-fbaf6f1d87ad",
-            "Date": "['Mar 2017', 'Mar 2018', 'Mar 2019', 'Mar 2020', 'Mar 2021', 'Mar 2022', 'Mar 2023', 'Mar 2024', 'Mar 2025']",
-            "Promoters": "[67.66, 67.03, 66.94, 65.6, 65.6, 70.58, 72.34, 63.83, 63.83]",
-            "FIIs": "[7.6, 6.42, 3.8, 2.51, 0.94, 0.41, 0.51, 2.29, 4.52]",
-            "DIIs": "[13.05, 14.51, 16.71, 16.86, 12.98, 9.88, 9.2, 8.64, 8.1]",
-            "Public": "[11.69, 12.04, 12.55, 13.08, 18.59, 17.64, 16.63, 24.07, 22.44]",
-            "Government": "[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.08, 0.1]",
-            "Others": "[0.0, 0.0, 0.0, 1.94, 1.89, 1.5, 1.33, 1.08, 1.0]",
-            "ShareholdersCount": "[46333.0, 46558.0, 62833.0, 57816.0, 75575.0, 90995.0, 79766.0, 93080.0, 117253.0]",
-        }
-    ],
+      {
+        "id": "501c8b50-5e13-4adc-9ea6-1af2ed0d2008",
+        "Date": "['Mar 2017', 'Mar 2018', 'Mar 2019', 'Mar 2020', 'Mar 2021', 'Mar 2022', 'Mar 2023', 'Mar 2024', 'Mar 2025']",
+        "Promoters": "[46.32, 47.45, 47.27, 50.07, 50.58, 50.66, 50.41, 50.31, 50.1]",
+        "FIIs": "[22.58, 24.46, 24.39, 24.08, 25.66, 24.23, 22.49, 22.06, 19.07]",
+        "DIIs": "[11.85, 11.23, 11.86, 13.78, 12.62, 14.23, 16.06, 16.98, 19.36]",
+        "Public": "[19.12, 16.72, 16.29, 11.87, 10.94, 10.71, 10.89, 10.46, 11.29]",
+        "Government": "[0.14, 0.15, 0.18, 0.2, 0.2, 0.17, 0.16, 0.19, 0.17]",
+        "Others": "nan",
+        "ShareholdersCount": "[2501302.0, 2266000.0, 2211231.0, 2632168.0, 3031272.0, 3327847.0, 3639396.0, 3463276.0, 4765728.0]"
+      }
+    ]
 }
-

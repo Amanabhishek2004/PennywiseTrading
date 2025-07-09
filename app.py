@@ -7,16 +7,18 @@ from sqlalchemy.orm import Session
 import pandas as pd
 from Routers import StockFundamentalRoutes
 from Database.databaseconfig import Base, engine, get_db
-from Database.models import Stock 
-from uuid import uuid4
-from Stock.Fundametals.Stock import *  
+from Database.models import *
+from uuid import uuid4 
 from Stock.Fundametals.StockComparables import *
 from Stock.Fundametals.StockDIctScehma import *
 from Stock.Fundametals.StockCashFlow import  *
 from Stock.Fundametals.StockForwardRatios import *
 from Stock.Fundametals.StockReturnsCalculation import *
-from Routers import StockRouters , ComparisonRouters , AdminRouter , TechnicalRoutes
+from Routers import StockRouters , ComparisonRouters , AdminRouter , TechnicalRoutes , UserAccountRoutes
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import event
+from Routers.UserAccountRoutes import  get_current_user
+# from D.models import StockTechnicals  # or the model you want to listen to
 
 
  
@@ -26,6 +28,7 @@ app.include_router(ComparisonRouters.router)
 app.include_router(AdminRouter.router)
 app.include_router(TechnicalRoutes.router)
 app.include_router(StockFundamentalRoutes.router)
+app.include_router(UserAccountRoutes.router)
  
 
 
@@ -36,6 +39,7 @@ origins = [
     "https://your-frontend-domain.com"  # Your production frontend
 ]
 
+event.listen(StockTechnicals, "after_update", create_alert_on_stock_update)
 # Add CORS Middleware
 app.add_middleware(
     CORSMiddleware,
@@ -46,7 +50,7 @@ app.add_middleware(
 )
  
 @app.get("/CalculateGrowthRatios/{ticker}" , tags = ["Ratios And Forward Comparables"])
-def FPE(ticker: str, db: Session = Depends(get_db)):
+def FPE(ticker: str, db: Session = Depends(get_db)  , current_user: User = Depends(get_current_user)):
       
       forwardpe = calculate_forward_pe(ticker , db)
  
@@ -64,7 +68,7 @@ def parse_data(data_string):
         raise ValueError(f"Invalid data format: {data_string}")
 
 @app.get("/AllRatios/{ticker}" , tags = ["Ratios And Forward Comparables"])
-def PCF(ticker:str , db:Session =  Depends(get_db) ) :
+def PCF(ticker:str , db:Session =  Depends(get_db) , current_user: User = Depends(get_current_user)  ) :
            '''
            We Are utilizing Free Cashflow To Firm And Calculating The Ratio Price /FCFF
            
@@ -79,7 +83,7 @@ def PCF(ticker:str , db:Session =  Depends(get_db) ) :
 
 
 @app.get("/Returns/{ticker}" , tags = ["Ratios And Forward Comparables"])
-def Returns(ticker:str , db:Session =  Depends(get_db) ) :
+def Returns(ticker:str , db:Session =  Depends(get_db) , current_user: User = Depends(get_current_user) ) :
         data = CalculateReturns(ticker) 
         return data
 
@@ -92,7 +96,7 @@ class PortfolioRequest(BaseModel):
 
 
 @app.post("/portfolio/returns" , tags = ["Portfolio Details And Correlation"])
-async def get_portfolio_returns(request: PortfolioRequest):
+async def get_portfolio_returns(request: PortfolioRequest ,current_user: User = Depends(get_current_user)):
     stocksarray = request.stocks
 
     if not stocksarray:

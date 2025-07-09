@@ -1,11 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional
-from fastapi import FastAPI, Depends
-from sqlalchemy.orm import Session
-from Database.databaseconfig import get_db
-from Database.models import Stock
 
-app = FastAPI()
 
 
 class ChannelSchema(BaseModel):

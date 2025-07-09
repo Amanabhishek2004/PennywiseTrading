@@ -7,15 +7,31 @@ from datetime import datetime , timedelta
 
 def parse_data(data_string):
 
-    import ast
-    if not data_string:
+    if data_string is None:
         return []
-    
-    try:
-        parsed_list = ast.literal_eval(data_string)  # Convert string to list
-        return [float(x) if x != 'nan' else float('nan') for x in parsed_list]
-    except (ValueError, SyntaxError):
-        raise ValueError(f"Invalid data format: {data_string}")
+
+    if isinstance(data_string, (int, float)):
+        return [float(data_string)]
+
+    elif isinstance(data_string, str):
+        cleaned_data = data_string.strip().replace("[", "").replace("]", "").replace("'", "").replace("%", "")
+        elements = cleaned_data.split(",")
+        result = []
+
+        for element in elements:
+            element = element.strip()
+            if element == "":
+                element = "0"
+            try:
+                number = float(element.replace(",", ""))
+                result.append(number)
+            except ValueError:
+                result.append(element)
+        return result
+
+    else:
+        return []
+
 
 def calculate_forward_pe(ticker, db, tax_rate=0.3):
 
@@ -71,16 +87,53 @@ def calculate_forward_pe(ticker, db, tax_rate=0.3):
              "InterestExpenseGrowth" : interest_growth}
 
 
+def CalculateMedianpe(ticker, db):
+    # Fetch stock and EPS
+    stock_data = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    if not stock_data or not stock_data.earning_metrics:
+        print("erorr")
+        return {"error": "Stock or earning metrics not found."}
 
+    epsarray = parse_data(stock_data.earning_metrics[0].epsTrailingTwelveMonths)
+    epsgrowth = stock_data.earning_metrics[0].epsForward
+    peg = stock_data.CurrentPrice / epsarray[-1]
 
+    years = len(epsarray)
+    num_days = years * 240
 
-def CalculateMedianpe(Stock , db) : 
-     
-     stock_data = db.query(Stock).filter(Stock.Ticker == Stock).first()
-     epsarray = parse_data(stock_data.earning_metrics[0].epsTrailingTwelveMonths)
-     epsgrowth = stock_data.earning_metrics[0].epsForward*100
-     peg = stock_data.comparables[0].trailingPE
-     return {
-          "PEG":peg /epsgrowth,  
-     }
+    price_data = (
+        db.query(PriceData)
+        .filter(PriceData.stock_id == stock_data.id, PriceData.period == "1d")
+        .order_by(PriceData.date.desc())
+        .limit(num_days)
+    ).all()
 
+    if not price_data or len(price_data) < 240:
+        return {"error": "Insufficient price data."}
+
+    # Reverse to chronological order
+    price_data = list(reversed(price_data))
+
+    pe_ratios = []
+    for i in range(years):
+        start = i * 240
+        end = (i + 1) * 240
+        year_slice = price_data[start:end]
+
+        # Skip if slice is empty or no corresponding EPS
+        if not year_slice or i >= len(epsarray) or epsarray[i] == 0:
+            pe_ratios.append(np.nan)
+        else:
+            # Use last available price in the slice
+            last_price = year_slice[-1].close_price
+            pe_ratio = last_price / epsarray[i]
+            pe_ratios.append(pe_ratio)
+
+    # Clean and calculate median
+    pe_ratios = [pe for pe in pe_ratios if not np.isnan(pe)]
+    median_pe = float(np.median(pe_ratios)) if pe_ratios else None
+
+    return {
+        "PEG": round(peg / epsgrowth, 2) if epsgrowth else None,
+        "MedianPE": round(median_pe, 2) if median_pe is not None else None
+    }

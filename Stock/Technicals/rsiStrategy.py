@@ -1,8 +1,7 @@
 import yfinance as yf
 from sklearn.linear_model import LinearRegression
 import numpy as np 
-import pandas_ta as ta
-from Database.models import *   
+
 from datetime import datetime, timedelta
 import pandas as pd 
 
@@ -23,9 +22,8 @@ import numpy as np
 
 
 def CalculateRSI(ticker, db, period):
-
-    # try:
         # Fetch stock data 
+        from Database.models import  Stock , StockTechnicals , Channel , PriceData          
         print("running")
         stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
         if not stock:
@@ -33,10 +31,15 @@ def CalculateRSI(ticker, db, period):
             return
 
         # Fetch price data based on the period
-        price_query =( db.query(PriceData).filter(
+        price_query = (
+            db.query(PriceData)
+            .filter(
                 PriceData.stock_id == stock.id,
                 PriceData.period == period
-            ).all())
+            )
+            .order_by(PriceData.date.asc())
+            .all()
+)
         prices = pd.Series([price.close_price for price in price_query])
         rsi_values = pd.Series([price.RSI for price in price_query])
         if len(prices) < 14:
@@ -50,7 +53,7 @@ def CalculateRSI(ticker, db, period):
             return
 
         # Determine trendline and region
-        valid_rsi = rsi_values[-5:]
+        valid_rsi = rsi_values[-20:]
         if len(valid_rsi) < 2:
             print("Not enough data to calculate RSI trendline.")
             return
@@ -79,9 +82,9 @@ def CalculateRSI(ticker, db, period):
                 stock_id=stock.id,
                 ticker=ticker,
                 period=period,
-                RsiSlope=m,
-                Rsiintercept=b,
-                CurrentRsi=current_rsi
+                RsiSlope=float(m),
+                Rsiintercept=float(b),
+                CurrentRsi=float(current_rsi)
             )
             db.add(technical)
 
@@ -101,12 +104,28 @@ def CalculateRSI(ticker, db, period):
 
 from datetime import datetime, timedelta, timezone
 
-def CalculateRSIpeakMaxmin(db, close_price, currentrsi, date, period, interval=15):
- 
-    # Check if RSI is forming a peak at higher levels compared to previous intervals.
-    
-    print(currentrsi)    
-    # Define the IST timezone offset
+def CalculateRSIpeakMaxmin(db, close_price, currentrsi, ticker, period, interval=30):
+    from Database.models import PriceData, Stock
+
+    # Get the stock object
+    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    if not stock:
+        print(f"No stock found for ticker {ticker}")
+        return False, False
+
+    # Get the last PriceData instance for this stock and period
+    last_price = (
+        db.query(PriceData)
+        .filter(PriceData.stock_id == stock.id, PriceData.period == period)
+        .order_by(PriceData.date.desc())
+        .first()
+    )
+    if not last_price:
+        print("No price data found.")
+        return False, False
+
+    # Use the date from the last PriceData instance
+    last_date_str = last_price.date
     ist_offset = timezone(timedelta(hours=5, minutes=30))
 
     def format_with_colon(dt):
@@ -114,8 +133,7 @@ def CalculateRSIpeakMaxmin(db, close_price, currentrsi, date, period, interval=1
         return dt.strftime('%Y-%m-%d %H:%M:00%z')[:-2] + ':' + dt.strftime('%Y-%m-%d %H:%M:00%z')[-2:]
 
     if period == "1d":
-        # Generate a list of dates for daily intervals
-        start_date = datetime.fromisoformat(date).date()
+        start_date = datetime.fromisoformat(str(last_date_str)).date()
         dates = [
             format_with_colon(
                 datetime.combine(start_date, datetime.min.time(), ist_offset) - timedelta(days=i)
@@ -123,30 +141,40 @@ def CalculateRSIpeakMaxmin(db, close_price, currentrsi, date, period, interval=1
             for i in range(interval)
         ]
     else:
-        # Generate a list of datetime values for minute intervals
-        start_datetime = datetime.fromisoformat(date).replace(tzinfo=ist_offset)
+        interval_data_mock = int(period[0])
+        interval_data = 30 if interval_data_mock == 3 else 5
+        start_datetime = datetime.fromisoformat(str(last_date_str)).replace(tzinfo=ist_offset)
         dates = [
-            format_with_colon((start_datetime - timedelta(minutes=i)).replace(second=0))
+            format_with_colon((start_datetime - timedelta(minutes=i * interval_data)).replace(second=0))
             for i in range(interval)
         ]
 
     print(dates)
+    tolerance = 0.003 *close_price
 
     # Query RSI data within the interval
-    data = db.query(PriceData).filter(
+    data_min = db.query(PriceData).filter(
         PriceData.date.in_(dates),
         PriceData.close_price >= close_price,
         PriceData.RSI < currentrsi
     ).all()
-    
 
-    return True if data else False 
+    data_max = db.query(PriceData).filter(
+        PriceData.date.in_(dates),
+        PriceData.close_price <= close_price,
+        PriceData.RSI > currentrsi
+    ).all()
+
+    print("max rsi -- " , [x.RSI for x in data_max] , currentrsi)
+    return len(data_max) != 0, len(data_min) != 0
 
 
 
 
 
 def CalculatePricetrend(ticker ,db , period):
+    from Database.models import  Stock , StockTechnicals , Channel , PriceData          
+    
     stock = db.query(Stock).filter(Stock.Ticker == ticker).first()  
     signal = None
     if period == "Shortterm" :
@@ -169,12 +197,6 @@ def CalculatePricetrend(ticker ,db , period):
         "Trend" : m , 
         "intercept" : b 
     }    
-    # Generate buy/sell signals based on RSI
 
 
-"""
-TRACK THE RSI TREND FOR LAST5 DAYS AND STORE THEM LIKE THIS  {
-"DATE" :  ,
-"TREND" : , 
-}
-"""
+

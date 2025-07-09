@@ -1,16 +1,27 @@
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base 
-from sqlalchemy.orm import sessionmaker   
-# Database URL
-DATABASE_URL = "postgresql://postgres:Aman2004@localhost:5432/Pennywise"
-# Create the SQLAlchemy engine 
-engine = create_engine(DATABASE_URL)
- # Base class for defining models
-Base = declarative_base() # SessionLocal will be used for creating database sessions
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)  # Dependency for getting the database session 
-def get_db():    
-  db = SessionLocal()     
-  try:       
-     yield db     
-  finally:    
-      db.close()  # Create tables for all models that inherit from Base def create_database():     print("Creating tables...")     Base.metadata.create_all(bind=engine)     print("Tables created successfully!") 
+from sqlalchemy.orm import sessionmaker, declarative_base
+from fastapi import Header, HTTPException, Depends 
+from sqlalchemy.orm import Session
+
+
+# Make sure the special characters like `@` in password are URL-encoded
+# `@` becomes `%40`, so `AMAN@2004` becomes `AMAN%402004`
+DATABASE_URL = "postgresql://postgres:AMAN%402004@db.uitfyfywxzaczubnecft.supabase.co:5432/postgres"
+
+engine = create_engine(DATABASE_URL, echo=False)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+
+
+# from sqlalchemy.orm import Session
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+

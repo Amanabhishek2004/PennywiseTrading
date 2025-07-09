@@ -7,11 +7,12 @@ from Database.models import *
 from typing import List
 from Database.Schemas.StockSchema import *
 import math
-from Stock.Fundametals.Stock import * 
-from Stock.Technicals.rsiStrategy import *
+from Stock.Technicals.rsiStrategy import CalculateRSI
 from Stock.Technicals.StockChannels import *    
+from Stock.Technicals.SignalGenerator import * 
 from Routers.AdminRouter import * 
-
+from Stock.Technicals.SuppourtResistance import * 
+from Routers.UserAccountRoutes import get_current_user
 
 router = APIRouter(prefix="/Stock", tags=["Stocks"])
 
@@ -23,38 +24,16 @@ def get_all_stocks(db: Session = Depends(get_db)):
     return stocks
 
 
-import math
 
-def find_inf_in_stocks(db):
-    stocks_with_inf = []
-    stocks = db.query(Stock).all()  # Fetch all stock records
 
-    for stock in stocks:
-        stock_dict = stock.__dict__
-        for column, value in stock_dict.items():
-            # Check if the value is inf or -inf
-            if isinstance(value, float) and math.isinf(value):
-                stocks_with_inf.append({
-                    "Ticker": stock.Ticker,
-                    "Column": column,
-                    "Value": value,  # Capture whether it's inf or -inf
-                })
-    return stocks_with_inf
-
-@router.get("/inf-check")
-def check_for_inf(db: Session = Depends(get_db)):
-    inf_info = find_inf_in_stocks(db)
-    if inf_info:
-        return {"Inf_Records": inf_info}
-    return {"message": "No inf or -inf values found"}
 
 class PeersRequest(BaseModel):
     tickers: List[str]
 
 @router.post("/peerstocks/", response_model=List[StockSchema])
-def GetPeers(request: PeersRequest, db: Session = Depends(get_db)):
+def GetPeers(request: PeersRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     tickers = request.tickers
-
+    print(tickers) 
     # Validate all tickers exist
     for stock in tickers:
         if not isinstance(stock, str):
@@ -66,16 +45,35 @@ def GetPeers(request: PeersRequest, db: Session = Depends(get_db)):
         if len(data.pricedata) == 0:
             update_single_ticker(stock, db)
         if len(data.technicals) == 0:
-            CreateChannels(stock, db)
+            print("Channels done")
+            CreateChannel(db , stock , period="1m")
+            CreateChannel(db , stock , period="1d")
+            CreateChannel(db , stock , period="30m")
+
+            print(" Rsi Channels done")
+
+            CalculateRSI( stock,db , period = "1m")
+            CalculateRSI( stock,db , period = "1d")
+            CalculateRSI( stock,db , period = "30m")
+
+
 
         # CREATE LEVELS  
-        CreateSuppourtResistances(stock , db )
-        #  levels due to patterns  
-        CreateNewLevels(stock  , db )
 
 
 
-        UpdateAllTechnicaldata(stock, db)
+            MakeStrongSupportResistance(stock , db , "1m")
+            MakeStrongSupportResistance(stock , db , "1d")
+            MakeStrongSupportResistance(stock , db , "30m")
+
+
+            #  levels due to patterns  
+            CreateNewLevels(stock  , db )
+
+
+
+        else:
+               UpdateAllTechnicaldata(stock, db)
 
     stocks = db.query(Stock).filter(Stock.Ticker.in_(tickers)).all()
 
@@ -90,7 +88,7 @@ def GetPeers(request: PeersRequest, db: Session = Depends(get_db)):
 
 
 @router.patch("/update/{ticker}", response_model=dict)
-def UpdateStockPrice(ticker: str, db: Session = Depends(get_db)):
+def UpdateStockPrice(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     # Fetch stock from the database
     stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
     if not stock:
@@ -121,7 +119,7 @@ def UpdateStockPrice(ticker: str, db: Session = Depends(get_db)):
         yfinance_data["Close"] = yfinance_data["Close"].pct_change(1)
         pct_change = yfinance_data["Close"].iloc[-1] if not yfinance_data.empty else None
     
-
+    # signal = 
 
     # Handle invalid pct_change (e.g., NaN)
     if pct_change is not None and (pd.isna(pct_change) or pd.isnull(pct_change)):
@@ -141,4 +139,26 @@ def UpdateStockPrice(ticker: str, db: Session = Depends(get_db)):
 
     return {"stock": stock_data}
 
+
+@router.post("/update/comparables/")
+def update_all_comparables(db: Session = Depends(get_db)):
+    stocks = db.query(Stock).all()
+    updated = []
+    failed = []
+
+    for stock in stocks:
+        try:
+            result = update_comparables(stock, db)
+            updated.append(stock.Ticker)
+        except Exception as e:
+            print(f"Failed to update comparables for {stock.Ticker}: {e}")
+            failed.append({"Ticker": stock.Ticker, "error": str(e)})
+
+    return {
+        "message": "Comparables update complete",
+        "updated_stocks": updated,
+        "failed_stocks": failed,
+        "success_count": len(updated),
+        "failure_count": len(failed)
+    }
 

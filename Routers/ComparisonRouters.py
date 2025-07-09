@@ -5,11 +5,11 @@ from Database.models import *
 from typing import List
 from Database.Schemas.StockSchema import *
 from statistics import median
-from Stock.Fundametals.Stock import * 
 from Stock.Fundametals.StockCashFlow import *
 from Stock.Fundametals.StockDIctScehma import *
 from pydantic import BaseModel
 from typing import List
+from Routers.UserAccountRoutes import get_current_user , track_read_and_data_usage
 
 router = APIRouter(prefix="/Metrics", tags=["Stock Metrics"])
 
@@ -20,7 +20,7 @@ import ast
 from statistics import median
 
 @router.post("/calculate/")
-def calculate_median_for_metrics(request: PeersRequest, db: Session = Depends(get_db)):
+def calculate_median_for_metrics(request: PeersRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     peers = request.peers
     peer_stocks = db.query(Stock).filter(Stock.Ticker.in_(peers)).all()
 
@@ -81,6 +81,8 @@ def calculate_median_for_metrics(request: PeersRequest, db: Session = Depends(ge
                     if val is not None:
                         metrics["operational_metrics"].setdefault(column, []).append(val)
 
+
+
     # Calculate medians for all columns in each section
     medians = {}
     for section, data in metrics.items():
@@ -92,7 +94,7 @@ def calculate_median_for_metrics(request: PeersRequest, db: Session = Depends(ge
                 print(f"[❌ ERROR] Failed to compute median for: {section} -> {key}")
                 print(f"   Values: {values}")
                 print(f"Error: {e}")
-
+    track_read_and_data_usage(medians)
     return medians
 
 def calculate_median_value(benchmark, stock):
@@ -116,7 +118,9 @@ def calculate_median_value(benchmark, stock):
                  scores[metric][key] = benchmark_value - stock_value 
              else:
                  scores[metric][key] = stock_value - benchmark_value
-                   
+     
+     track_read_and_data_usage(scores)              
+     
      return scores
 
 def CalculateAllscores(data) :
@@ -132,7 +136,7 @@ def CalculateAllscores(data) :
 
 
 @router.get("/FCFF/{ticker}")
-def get_the_cashflows(ticker: str, db: Session = Depends(get_db)):
+def get_the_cashflows(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
      """
      Endpoint to calculate and return the Free Cash Flow to Firm (FCFF) for a given stock ticker.
  
