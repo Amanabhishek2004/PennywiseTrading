@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel , validator
 from typing import List, Optional
-
+import math
 
 
 class ChannelSchema(BaseModel):
@@ -51,19 +51,34 @@ class EarningMetricSchema(BaseModel):
 
 
 class ComparablesSchema(BaseModel):
-    id: str
-    trailingPE: Optional[float]
-    forwardPE: Optional[float]
-    pricetoBook: Optional[float]
-    TotalCommonSharesOutstanding: Optional[str]
-    pricetoFreeCashFlow: Optional[float]
-    pricetoSales: Optional[float]
-    DebttoEquity: Optional[float]
-    trailingAnnualDividendYield: Optional[float]
-    dividendYield: Optional[float]
-    dividendRate: Optional[float]
-    fiveYearAvgDividendYield: Optional[float]
-    payoutRatio: Optional[float]
+    id: Optional[str]
+    trailingPE: Optional[float] = 0.0
+    forwardPE: Optional[float] = 0.0
+    pricetoBook: Optional[float] = 0.0
+    pricetoFreeCashFlow: Optional[float] = 0.0
+    FCFF_Yield: Optional[float] = 0.0
+    pricetoSales: Optional[float] = 0.0
+    DebttoEquity: Optional[float] = 0.0
+    trailingAnnualDividendYield: Optional[float] = 0.0
+    dividendYield: Optional[float] = 0.0
+    dividendRate: Optional[float] = 0.0
+    fiveYearAvgDividendYield: Optional[float] = 0.0
+    payoutRatio: Optional[float] = 0.0
+    medianpe: Optional[float] = 0.0
+    EV: Optional[float] = 0.0
+    EVEBITDA: Optional[float] = 0.0
+    CurrentRatio: Optional[float] = 0.0
+    peg: Optional[float] = 0.0
+    Avg_Sales_QoQ_Growth_Percent: Optional[float] = 0.0
+    Avg_NetProfit_QoQ_Growth_Percent: Optional[float] = 0.0
+    Avg_OperatingProfit_QoQ_Growth_Percent: Optional[float] = 0.0
+    Avg_EPS_QoQ_Growth_Percent: Optional[float] = 0.0
+
+    @validator('*', pre=True)
+    def replace_nan_with_zero(cls, v):
+        if isinstance(v, float) and math.isnan(v):
+            return 0.0
+        return v
 
     class Config:
         orm_mode = True
@@ -217,5 +232,16 @@ class StockSchema(BaseModel):
     quaterly_results: List[QuaterlyResultSchema] = []
     shareholdings: List[ShareholdingSchema] = []
 
+    class Config:
+        orm_mode = True
+
+
+class StockSearchschema(BaseModel):
+    id: str 
+    CompanyName: Optional[str]
+    Ticker: str
+    Industry: Optional[str]
+    updated: Optional[str]
+    
     class Config:
         orm_mode = True

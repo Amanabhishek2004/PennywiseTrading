@@ -18,12 +18,17 @@ router = APIRouter(prefix="/Stock", tags=["Stocks"])
 
 
 
-@router.get("/stocks", response_model=List[StockSchema])
+@router.get("/stocks", response_model=List[StockSearchschema])
 def get_all_stocks(db: Session = Depends(get_db)):
-    stocks = db.query(Stock).all()[:20]
+    stocks = db.query(Stock).all()
     return stocks
 
 
+
+@router.get("/stocks/{ticker}", response_model=StockSchema)
+def get_all_stocks(ticker: str , db: Session = Depends(get_db)):
+    stocks = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    return stocks
 
 
 

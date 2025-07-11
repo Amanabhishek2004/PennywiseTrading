@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
 from uuid import uuid4
-import secrets                               # <── NEW
+import secrets            
+from Database.Schemas.UserSchema import *                   # <── NEW
 from passlib.context import CryptContext
 from UserAccounts.UserWatchlistManagement import * 
 from Database.databaseconfig import SessionLocal
@@ -226,7 +227,8 @@ def read_users_me(current_user: User = Depends(get_current_user)):
         "username": current_user.username,
         "email": current_user.email,
         "name": current_user.name,
-        "api_key": current_user.Apikey
+        "api_key": current_user.Apikey , 
+        "id" : current_user.id
     }
 
 @router.post("/add")
@@ -249,3 +251,11 @@ def remove_from_watchlist(data: WatchlistPostSchema, db: Session = Depends(get_d
     else :   
          raise HTTPException(status_code=400, detail = "Permission Denied" )
     return result
+
+
+@router.get("/{user_id}", response_model=UserWithAllDataSchema)
+def get_user_details(user_id: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
