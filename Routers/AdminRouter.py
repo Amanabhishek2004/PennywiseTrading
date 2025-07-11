@@ -444,27 +444,16 @@ def UpdateAllTechnicaldata(ticker ,db: Session = Depends(get_db) , timeinterval 
         update_single_ticker(ticker , db)
         
         c1 = CreateVolumeChannel(db , stock.Ticker , period="1m")
-        print(c1) 
         c2 = CreateVolumeChannel(db , stock.Ticker , period="1d") 
         c3 = CreateVolumeChannel(db , stock.Ticker , period="30m") 
 
-        data_30m = GetSupportResistance(stock.Ticker , db , period = "30m" , current_user = current_user) 
-        data_1d = GetSupportResistance(stock.Ticker , db , period = "1d" , current_user = current_user)
-        data_1m = GetSupportResistance(stock.Ticker , db , period = "1m" , current_user = current_user)
-
-        technicals_1m = db.query(StockTechnicals).filter(StockTechnicals.ticker == stock.Ticker , StockTechnicals.period == "1m").first()    
-        technicals_1m.CurrentSupport = data_1m["Support"]
-        technicals_1m.CurrentResistance = data_1m["Resistance"]
-
-
-        technicals_1d = db.query(StockTechnicals).filter(StockTechnicals.ticker == stock.Ticker , StockTechnicals.period == "1d").first()
-        technicals_1d.CurrentSupport = data_1d["Support"]
-        technicals_1d.CurrentResistance = data_1d["Resistance"]
-
-
-        technicals_1m = db.query(StockTechnicals).filter(StockTechnicals.ticker == stock.Ticker , StockTechnicals.period == "30m").first()
-        technicals_1d.CurrentSupport = data_30m["Support"]
-        technicals_1d.CurrentResistance = data_30m["Resistance"]
+        data_30m = MakeStrongSupportResistance(stock.Ticker , db , period = "30m" ) 
+        data_1d = MakeStrongSupportResistance(stock.Ticker , db , period = "1d" )
+        data_1m = MakeStrongSupportResistance(stock.Ticker , db , period = "1m")
+        
+        data_30m = CreatepatternSuppourt(stock.Ticker , db , period = "30m" ) 
+        data_1d = CreatepatternSuppourt(stock.Ticker , db , period = "1d" )
+        data_1m = CreatepatternSuppourt(stock.Ticker , db , period = "1m")
  
         channeldata = CreateChannel(db, stock.Ticker,timeinterval ,period="1m")             
         channeldata = CreateChannel(db, stock.Ticker,timeinterval ,period="1d")             

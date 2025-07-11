@@ -73,7 +73,7 @@ def GetPeers(request: PeersRequest, db: Session = Depends(get_db), current_user:
 
 
         else:
-               UpdateAllTechnicaldata(stock, db)
+               UpdateAllTechnicaldata(stock, db , current_user=current_user)
 
     stocks = db.query(Stock).filter(Stock.Ticker.in_(tickers)).all()
 
@@ -86,58 +86,6 @@ def GetPeers(request: PeersRequest, db: Session = Depends(get_db), current_user:
 
 # Assuming StockSchema is defined like this:
 
-
-@router.patch("/update/{ticker}", response_model=dict)
-def UpdateStockPrice(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # Fetch stock from the database
-    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-    if not stock:
-        raise HTTPException(status_code=404, detail="Stock not found")
-
-    # Fetch current price
-    data = yfinance.Ticker(f"{ticker}.NS").info
-    stock.CurrentPrice = data.get("currentPrice")
-
-    #  Update the rsi 
-    stock.technicals.RsiSlope = CalculateRSI(ticker)["trend"]
-    stock.technicals.Rsiintercept = CalculateRSI(ticker)["intercept"]
-    stock.technicals.CurrentRsi = CalculateRSI(ticker)["Current RSI"]
-    #  Update the trendline 
-    stock.trendlines.slope = CalculatePricetrend(ticker)["Trend"] 
-    stock.trendlines.intercept = CalculatePricetrend(ticker)["intercept"]  
-    #  Update the channels
-    stock.channels.upper_channel_slope , stock.channels.upper_channel_intercept = CreateUpperChannel(stock.ticker)
-    stock.channels.lower_channel_slope , stock.channels.lower_channel_intercept = CreateLowerChannel(stock.ticker)
-    
-      
-    # Fetch historical data
-    yfinance_data = yfinance.Ticker(f"{ticker}.NS").history(period="2d")
-
-    # Calculate percentage change if data is available
-    pct_change = None
-    if not yfinance_data.empty and "Close" in yfinance_data.columns:
-        yfinance_data["Close"] = yfinance_data["Close"].pct_change(1)
-        pct_change = yfinance_data["Close"].iloc[-1] if not yfinance_data.empty else None
-    
-    # signal = 
-
-    # Handle invalid pct_change (e.g., NaN)
-    if pct_change is not None and (pd.isna(pct_change) or pd.isnull(pct_change)):
-        pct_change = None
-
-    # Commit changes to the database
-    db.commit()
-    db.refresh(stock)
-
-    # Serialize the stock object
-    stock_data = {
-        "id": stock.id,
-        "Ticker": stock.Ticker,
-        "CurrentPrice": stock.CurrentPrice,
-        "pct_change": pct_change,
-    }
-
-    return {"stock": stock_data}
 
 
 @router.post("/update/comparables/")

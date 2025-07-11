@@ -75,14 +75,20 @@ def GetStockChannels(input_data: InputData, db: Session = Depends(get_db), curre
 
 
 @router.get("/GetSupportResistance", response_model=dict)
-def GetSupportResistance(ticker: str, db: Session = Depends(get_db), period: str = "1d", current_user: User = Depends(get_current_user)):
+def GetSupportResistance(
+    ticker: str,
+    period,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
+    
     DATA = UpdateSuppourt(ticker, db, period)
+
     track_read_and_data_usage(db, current_user.id, DATA)
     return DATA
-
 
 @router.post("/SuppourtResistance", response_model=dict)
 def CreateSuppourtResistances(ticker: str, db: Session = Depends(get_db), period: str = "1d", current_user: User = Depends(get_current_user)):

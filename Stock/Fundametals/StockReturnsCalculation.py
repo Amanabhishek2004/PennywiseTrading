@@ -12,12 +12,12 @@ def CalculateReturns(ticker):
         "6m": None,
         "12m": None
     }
-    data = yf.download(tickers=[ticker], group_by="ticker", period="10y", interval="1d")
+    data = yf.download(tickers=[f"{ticker}.NS"], group_by="ticker", period="10y", interval="1d")
     if data.empty:
         raise ValueError(f"No data found for ticker: {ticker}")
 
     # Use 'Close' directly if single ticker
-    close = data["Close"] if "Close" in data else data[ticker]["Close"]
+    close = data["Close"] if "Close" in data else data[f"{ticker}.NS"]["Close"]
 
     returns["1m"] = close.pct_change(1).shift(1).dropna().cumsum().resample("M").last().mean()
     returns["3m"] = close.pct_change(3).shift(1).dropna().cumsum().resample("M").last().mean()
@@ -57,7 +57,7 @@ def CalculatePortfolioReturns(stocksarray):
     # print("Pivot Table:\n", pivot_table)
 
     # Calculate Correlation
-    correlation_between_stocks = dataframe[[ "1m Returns" , "3m Returns" , "6m Returns","12m Returns" ]].corr()
+    correlation_between_stocks = dataframe[[ "1m Returns" , "3m Returns" , "6m Returns", "12m Returns" ]].corr()
 
     print("Correlation Matrix:\n", correlation_between_stocks)
 

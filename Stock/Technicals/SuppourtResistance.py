@@ -210,14 +210,23 @@ def MakeStrongSupportResistance(ticker, db, period):
 
     # Create support and resistance entries in the database
     for _, row in strong_levels.iterrows():
-        suppourt = SupportData(
-            stock_id=stock_data.id,
-            Price=float(row["Low"]),  # Convert to native Python float
-            period=period,
-            Pattern="Strong Levels",
-            retests=int(row["count"]),  # Convert to native Python int
-        )
-        db.add(suppourt)
+        existing = db.query(SupportData).filter(
+            SupportData.Price == float(row["Low"])
+        ).first()
+
+        if existing : 
+              existing.retest = int(row["count"])
+              db.commit()
+
+        if not existing : 
+                suppourt = SupportData(
+                    stock_id=stock_data.id,
+                    Price=float(row["Low"]),  # Convert to native Python float
+                    period=period,
+                    Pattern="Strong Levels",
+                    retests=int(row["count"]),  # Convert to native Python int
+                )
+                db.add(suppourt)
 
         db.commit()
     db.commit()    

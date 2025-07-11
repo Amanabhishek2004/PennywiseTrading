@@ -48,10 +48,10 @@ def _track_read_and_data_usage(db: Session, user_id: str, data_obj, read_inc: in
     today = date.today()
     mb_used = round(_get_deep_size(data_obj) / (1024 * 1024), 4)
 
-    record = db.query(ReadHistory).filter_by(user_id=user_id, date=today).first()
+    record = db.query(ReadHistory).filter_by(user_id=user_id, date=str(today)).first()
     if record:
         record.reads += read_inc
-        record.data_used += mb_used
+        record.dataused += mb_used
     else:
         record = ReadHistory(user_id=user_id, reads=read_inc, data_used=mb_used, date=today)
         db.add(record)

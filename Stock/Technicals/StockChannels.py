@@ -30,7 +30,7 @@ def CreateChannel(db, Ticker: str, timeperiod: int = 20, period: str = "1d"):
             for record in price_data
         ]
     )
-
+    print(len(data) , timeperiod) 
     # Ensure there are enough data points
     if len(data) < timeperiod:
         return
