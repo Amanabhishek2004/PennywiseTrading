@@ -149,6 +149,8 @@ def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
     
     if existing_user:
         raise HTTPException(status_code=400, detail="Username or email already exists")
+    
+    api_key = generate_api_key()
 
     # Create the user
     new_user = User(
@@ -160,14 +162,22 @@ def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
         phonenumber=user_in.phonenumber,
         reads=0,
         Dataused=0.0,
-        AuthToken="",
+        AuthToken=api_key,
         Apikey=generate_api_key()
     )
 
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-
+    
+    usage_entry = ApiKeyUsage(
+        id=str(uuid4()),
+        user_id=new_user.id,
+        apikey=api_key,
+        date=datetime.now().strftime("%Y-%m-%d")
+    )
+    db.add(usage_entry)
+    db.commit()
     return {"api_key": new_user.Apikey}
 
 

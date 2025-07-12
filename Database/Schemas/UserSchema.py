@@ -86,7 +86,6 @@ class UserWithAllDataSchema(BaseModel):
     Dataused: Optional[float]
     AuthToken: Optional[str]
     Apikey: Optional[str]
-
     watchlist: List[StockSchema] = []
     invoices: List[InvoiceSchema] = []
     alerts: List[AlertSchema] = []
