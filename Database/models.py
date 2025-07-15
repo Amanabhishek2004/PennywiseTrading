@@ -1,5 +1,5 @@
-from sqlalchemy import Column, String, ForeignKey, Integer, Float, BigInteger, Table
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, ForeignKey, Integer, Float, BigInteger, Table , Boolean
+from sqlalchemy.orm import relationship , backref
 from Database.databaseconfig import *
 from uuid import uuid4
 import json
@@ -62,48 +62,16 @@ class Stock(Base):
         back_populates="watchlist"
     )
 
-class Plan(Base):
-    __tablename__ = "Plans"
+class Subscription(Base):
+    __tablename__ = "Subscription"
+    
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
-    plan_type = Column(String)
-    timeperiod = Column(String)
-    Price = Column(Integer)
-    invoices = relationship("Invoices", back_populates="plan", cascade="all, delete-orphan")
-    user_id = Column(String, ForeignKey("Users.id", ondelete="CASCADE"), nullable=True)
-    user = relationship("User", back_populates="plans")
-
-
-class Invoices(Base):
-    __tablename__ = "Invoices"
-    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
-    user_id = Column(String, ForeignKey("Users.id", ondelete="SET NULL"), nullable=True)
-    plan_id = Column(String, ForeignKey("Plans.id", ondelete="SET NULL"), nullable=True)
-    transaction_id = Column(String)
-    user = relationship("User", back_populates="invoices")
-    plan = relationship("Plan", back_populates="invoices")
-
-
-
-class ReadHistory(Base):
-    __tablename__ = "ReadHistory"
-    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
-    user_id = Column(String, ForeignKey("Users.id", ondelete="CASCADE"))
-    reads = Column(Integer, default=0)
-    date = Column(String, index=True)
-    dataused = Column(Float , default=0.0)
-    user = relationship("User", back_populates="read_history")
-
-
-
-class ApiKeyUsage(Base):
-    __tablename__ = "ApiKeyUsage"
-    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
-    user_id = Column(String, ForeignKey("Users.id", ondelete="CASCADE"))
-    apikey = Column(String, nullable=False)
-    date = Column(String, index=True)
-    user = relationship("User", back_populates="apikey_usage")
-
-
+    subscriptiontype = Column(String, unique=True, nullable=False) 
+    amount = Column(Integer, nullable=True)
+    customertype = Column(String)
+    description = Column(String, nullable=True)
+    duration = Column(Integer)
+    plans = relationship("Plan", back_populates="subscription")
 
 class User(Base):
     __tablename__ = "Users"
@@ -111,12 +79,20 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     password = Column(String)
     reads = Column(Integer)
+    referralCode = Column(String)
+    points = Column(Integer , default= 0.0 )
+    referred_by_id = Column(String, ForeignKey("Users.id"), nullable=True)    
+    referredusers = relationship(
+        "User",
+        backref=backref("referred_by", remote_side=[id])
+    )
     Dataused = Column(Float)
     name = Column(String, index=True)
     email = Column(String, unique=True, index=True)
     phonenumber = Column(String, unique=True, index=True)
     AuthToken = Column(String, unique=True, index=True)
-    Apikey = Column(String, unique=True, nullable=True)
+    lastloggedin = Column(String , nullable = True) 
+    Status = Column(Integer , default=0) 
 
     watchlist = relationship(
         "Stock",
@@ -126,9 +102,65 @@ class User(Base):
     invoices = relationship("Invoices", back_populates="user", cascade="all, delete-orphan")
     alerts = relationship("Alert", back_populates="user", cascade="all, delete-orphan")
     plans = relationship("Plan", back_populates="user", cascade="all, delete-orphan")
-
     read_history = relationship("ReadHistory", back_populates="user", cascade="all, delete-orphan")
     apikey_usage = relationship("ApiKeyUsage", back_populates="user", cascade="all, delete-orphan")
+    
+
+
+class Plan(Base):
+    __tablename__ = "Plans"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    plan_type = Column(String, ForeignKey("Subscription.subscriptiontype", ondelete="SET NULL"), nullable=True)
+    timeperiod = Column(String)
+    Price = Column(Integer)
+    user_id = Column(String, ForeignKey("Users.id", ondelete="CASCADE"), nullable=True)
+    user = relationship("User", back_populates="plans")
+    invoices = relationship("Invoices", back_populates="plan", cascade="all, delete-orphan")
+    subscription = relationship("Subscription", back_populates="plans")
+
+class Invoices(Base):
+    __tablename__ = "Invoices"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id = Column(String, ForeignKey("Users.id", ondelete="CASCADE"), nullable=True)
+    plan_id = Column(String, ForeignKey("Plans.id", ondelete="SET NULL"), nullable=True)
+    transaction_id = Column(String)
+    user = relationship("User", back_populates="invoices")
+    plan = relationship("Plan", back_populates="invoices")
+    created_at = Column(String , nullable = True)
+
+class ReadHistory(Base):
+    __tablename__ = "ReadHistory"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id = Column(String, ForeignKey("Users.id", ondelete="CASCADE"))
+    reads = Column(Integer, default=0)
+    date = Column(String, index=True)
+    dataused = Column(Float, default=0.0)
+    user = relationship("User", back_populates="read_history")
+
+class ApiKeyUsage(Base):
+    __tablename__ = "ApiKeyUsage"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id = Column(String, ForeignKey("Users.id", ondelete="CASCADE"))
+    apikey = Column(String, nullable=False)
+    date = Column(String, index=True)
+    purpose = Column(String)
+
+    user = relationship("User", back_populates="apikey_usage")
+
+class Alert(Base):
+    __tablename__ = "Alerts"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id = Column(String, ForeignKey("Users.id", ondelete="CASCADE"), nullable=True)
+    rsiPeakdivergence = Column(Boolean)
+    Ticker = Column(String)
+    Macross = Column(Float)
+    lowerchannelSlope = Column(Float)
+    upperchannelSlope = Column(Float)
+    RsiSlope = Column(Float)
+    time = Column(String)
+    period = Column(String)
+    tag = Column(String)
+    user = relationship("User", back_populates="alerts")
 
 
 class EarningMetric(Base):
@@ -336,20 +368,6 @@ class Shareholding(Base):
 
 from sqlalchemy import Boolean
 
-class Alert(Base):
-    __tablename__ = "Alerts"
-    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
-    user_id = Column(String, ForeignKey("Users.id", ondelete="SET NULL"), nullable=True)  # Add this line
-    rsiPeakdivergence = Column(Boolean)  # Use Boolean, not bool
-    Ticker = Column(String)
-    Macross = Column(Float)
-    lowerchannelSlope = Column(Float)
-    upperchannelSlope = Column(Float)
-    RsiSlope = Column(Float)
-    time = Column(String)
-    period = Column(String)
-    tag = Column(String)
-    user = relationship("User", back_populates="alerts")
 
 
 class SwingPoints(Base):

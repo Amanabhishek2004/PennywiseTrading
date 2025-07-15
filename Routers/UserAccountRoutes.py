@@ -163,7 +163,6 @@ def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
         reads=0,
         Dataused=0.0,
         AuthToken=api_key,
-        Apikey=generate_api_key()
     )
 
     db.add(new_user)
@@ -178,7 +177,7 @@ def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
     )
     db.add(usage_entry)
     db.commit()
-    return {"api_key": new_user.Apikey}
+    return {"message":f"Account created for {user_in.username}" }
 
 
 @router.post("/token", response_model=TokenOut)
@@ -236,8 +235,7 @@ def read_users_me(current_user: User = Depends(get_current_user)):
     return {
         "username": current_user.username,
         "email": current_user.email,
-        "name": current_user.name,
-        "api_key": current_user.Apikey , 
+        "name": current_user.name , 
         "id" : current_user.id
     }
 
@@ -269,3 +267,66 @@ def get_user_details(user_id: str, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+
+
+class AddSubscriptionRequest(BaseModel):
+    subscription_type: str
+    timeperiod: str
+    amount: Optional[int] = None
+    referral_code: Optional[str] = None
+    transaction_id: str  
+
+
+@router.post("/add-subscription")
+def add_subscription(
+    request: AddSubscriptionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+
+    subscription = db.query(Subscription).filter(
+        Subscription.subscriptiontype == request.subscription_type
+    ).first()
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Subscription type not found.")
+
+    amount = request.amount or subscription.amount
+
+    if request.referral_code:
+        referred_user = db.query(User).filter(User.referralCode == request.referral_code).first()
+        if referred_user:
+            referred_user.points += amount
+            if current_user.referred_by_id is None:  # avoid overwriting
+                current_user.referred_by_id = referred_user.id
+        else:
+            raise HTTPException(status_code=400, detail="Invalid referral code.")
+
+
+    plan = Plan(
+        id=str(uuid4()),
+        plan_type=request.subscription_type,
+        timeperiod=request.timeperiod,
+        Price=amount,
+        user_id=current_user.id
+    )
+    db.add(plan)
+
+
+    invoice = Invoices(
+        id=str(uuid4()),
+        user_id=current_user.id,
+        plan_id=plan.id,
+        # created_at=str(datetime.utcnow()),
+        transaction_id=request.transaction_id
+    )
+    db.add(invoice)
+
+    db.commit()
+
+    return {
+        "message": "Subscription added successfully",
+        "plan_id": plan.id,
+        "invoice_id": invoice.id,
+        "transaction_id": invoice.transaction_id
+    }

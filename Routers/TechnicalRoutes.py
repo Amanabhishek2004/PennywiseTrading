@@ -12,13 +12,16 @@ from Stock.Technicals.rsiStrategy import *
 from Stock.Technicals.SuppourtResistance import *
 from Database.Schemas.PriceSchema import *
 from Stock.Technicals.SignalGenerator  import * 
-
+from fastapi.responses import ORJSONResponse
 from Stock.Technicals.DynamicSuppourtResistance import * 
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from Routers.UserAccountRoutes import get_current_user , get_deep_size , track_read_and_data_usage
+from fastapi_cache.decorator import cache 
 
-router = APIRouter(prefix="/Stock", tags=["Technical Routes"])
+router = APIRouter(
+    default_response_class= ORJSONResponse , 
+    prefix="/Stock", tags=["Technical Routes"])
 
 
 class RSISignalSchema(BaseModel):
@@ -105,8 +108,23 @@ def CreateNewLevels(ticker: str, db: Session = Depends(get_db), period: str = "1
 
 
 @router.get("/GetPrices/", response_model=List[PriceDataResponse])
-def getallPrices(ticker: str, period: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    prices = db.query(PriceData).join(Stock).filter(PriceData.period == period, Stock.Ticker == ticker).all()
+def getallPrices(
+    ticker: str,
+    period: str,
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    prices = (
+        db.query(PriceData)
+        .join(Stock)
+        .filter(PriceData.period == period, Stock.Ticker == ticker)
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    
     track_read_and_data_usage(db, current_user.id, prices)
     return prices
 

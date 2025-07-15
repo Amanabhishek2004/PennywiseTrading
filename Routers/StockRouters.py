@@ -37,7 +37,7 @@ class PeersRequest(BaseModel):
     tickers: List[str]
 
 @router.post("/peerstocks/", response_model=List[StockSchema])
-def GetPeers(request: PeersRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def GetPeers(request: PeersRequest, db: Session = Depends(get_db)):
     tickers = request.tickers
     print(tickers) 
     # Validate all tickers exist

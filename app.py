@@ -18,11 +18,12 @@ from Routers import StockRouters , ComparisonRouters , AdminRouter , TechnicalRo
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import event
 from Routers.UserAccountRoutes import  get_current_user
+from fastapi.responses import ORJSONResponse 
 # from D.models import StockTechnicals  # or the model you want to listen to
 
 
  
-app = FastAPI()
+app = FastAPI(default_response_class= ORJSONResponse)
 app.include_router(StockRouters.router)
 app.include_router(ComparisonRouters.router)
 app.include_router(AdminRouter.router)
@@ -38,6 +39,17 @@ origins = [
     "http://127.0.0.1:3000",  # Alternative localhost
     "https://your-frontend-domain.com"  # Your production frontend
 ]
+
+
+
+from redis.asyncio import Redis
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+
+@app.on_event("startup")
+async def startup():
+    redis = Redis.from_url("redis://localhost", encoding="utf-8", decode_responses=True)
+    FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
 
 event.listen(StockTechnicals, "after_update", create_alert_on_stock_update)
 # Add CORS Middleware

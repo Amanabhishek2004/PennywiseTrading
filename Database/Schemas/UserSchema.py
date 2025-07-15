@@ -75,6 +75,15 @@ class ApiKeyUsageSchema(BaseModel):
 # ----------------------------------
 # Main User Schema
 # ----------------------------------
+class Referrals(BaseModel) : 
+
+    username : str 
+    name : str
+    
+    
+    class Config:
+        orm_mode = True
+
 
 class UserWithAllDataSchema(BaseModel):
     id: str
@@ -85,13 +94,13 @@ class UserWithAllDataSchema(BaseModel):
     reads: Optional[int]
     Dataused: Optional[float]
     AuthToken: Optional[str]
-    Apikey: Optional[str]
     watchlist: List[StockSchema] = []
     invoices: List[InvoiceSchema] = []
     alerts: List[AlertSchema] = []
     plans: List[PlanSchema] = []
     read_history: List[ReadHistorySchema] = []
     apikey_usage: List[ApiKeyUsageSchema] = []
+    referredusers : List[Referrals] = []
 
     class Config:
         orm_mode = True
