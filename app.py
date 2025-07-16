@@ -46,10 +46,6 @@ from redis.asyncio import Redis
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 
-@app.on_event("startup")
-async def startup():
-    redis = Redis.from_url("redis://localhost", encoding="utf-8", decode_responses=True)
-    FastAPICache.init(RedisBackend(redis), prefix="fastapi-cache")
 
 event.listen(StockTechnicals, "after_update", create_alert_on_stock_update)
 # Add CORS Middleware

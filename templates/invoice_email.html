@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Your Pennywise Invoice</title>
+</head>
+<body>
+    <h2>Hi {{ user_name }},</h2>
+    <p>Thanks for purchasing a subscription with Pennywise.</p>
+
+    <h3>Invoice Details:</h3>
+    <ul>
+        <li><strong>Plan Type:</strong> {{ plan_type }}</li>
+        <li><strong>Time Period:</strong> {{ timeperiod }}</li>
+        <li><strong>Amount:</strong> ₹{{ amount }}</li>
+        <li><strong>Transaction ID:</strong> {{ transaction_id }}</li>
+    </ul>
+
+    {% if referrer_name %}
+        <p>Thanks for using a referral code! <strong>{{ referrer_name }}</strong> has earned reward points.</p>
+    {% endif %}
+
+    <p>Regards,<br>Pennywise Team</p>
+</body>
+</html>

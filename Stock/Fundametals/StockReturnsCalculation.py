@@ -46,23 +46,16 @@ def CalculatePortfolioReturns(stocksarray):
         "6m Returns": returns_6m,
         "12m Returns": returns_12m
     })
-
+    
     if dataframe.empty:
         raise ValueError("Generated dataframe is empty. Ensure valid stock data is provided.")
 
     print("DataFrame:\n", dataframe)
 
-    # Create Pivot Table
-
-    # print("Pivot Table:\n", pivot_table)
-
-    # Calculate Correlation
     correlation_between_stocks = dataframe[[ "1m Returns" , "3m Returns" , "6m Returns", "12m Returns" ]].corr()
 
     print("Correlation Matrix:\n", correlation_between_stocks)
 
-    # Convert DataFrames to NumPy arrays
-    # pivot_table_array = pivot_table.to_numpy().tolist()
     correlation_matrix_array = correlation_between_stocks.to_numpy().tolist()
 
     return {

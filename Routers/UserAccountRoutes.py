@@ -14,7 +14,10 @@ from passlib.context import CryptContext
 from UserAccounts.UserWatchlistManagement import * 
 from Database.databaseconfig import SessionLocal
 from Database.models import User                     # whatever path your models live in
+from EmailShooter import send_email 
 import sys
+
+
 
 def get_deep_size(obj, seen=None):
     """Recursively calculate the size of a Python object in bytes."""
@@ -96,7 +99,7 @@ def get_current_user(
             raise cred_exc
     except JWTError:
         raise cred_exc
-      # Converts to 'YYYY-MM-DD' string
+
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise cred_exc
@@ -111,7 +114,6 @@ def get_current_user(
         new_read = ReadHistory(
             user_id=user.id,
             reads=1,
-
             date=today
         )
         db.add(new_read)
@@ -140,7 +142,7 @@ def hash_password(password: str) -> str:
 def generate_api_key() -> str:
     return secrets.token_urlsafe(44)  # ≈ 256 bits of entropy
 
-@router.post("/signup", response_model=ApiKeyOut)
+@router.post("/signup")
 def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
     # Check if username or email already exists
     existing_user = db.query(User).filter(
@@ -184,7 +186,8 @@ def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
 def login(
     form: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
-):
+):  
+        
     user = authenticate_user(db, form.username, form.password)
     if not user:
         raise HTTPException(status_code=400, detail="Incorrect username or password")
@@ -195,6 +198,8 @@ def login(
     )
 
     user.AuthToken = token
+    user.lastloggedin = str(datetime.today())
+    user.Status = 1
     db.commit()
     db.refresh(user)  # optional
 
@@ -270,6 +275,7 @@ def get_user_details(user_id: str, db: Session = Depends(get_db)):
 
 
 
+
 class AddSubscriptionRequest(BaseModel):
     subscription_type: str
     timeperiod: str
@@ -284,45 +290,88 @@ def add_subscription(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-
+    # Fetch subscription type
     subscription = db.query(Subscription).filter(
         Subscription.subscriptiontype == request.subscription_type
     ).first()
+
     if not subscription:
         raise HTTPException(status_code=404, detail="Subscription type not found.")
 
     amount = request.amount or subscription.amount
+    validity = subscription.duration  # assumed in days
 
+    today = date.today()
+    referred_user = None
+
+    # Referral logic
     if request.referral_code:
         referred_user = db.query(User).filter(User.referralCode == request.referral_code).first()
-        if referred_user:
+        if referred_user and referred_user != current_user:
             referred_user.points += amount
-            if current_user.referred_by_id is None:  # avoid overwriting
+            if current_user.referred_by_id is None:
                 current_user.referred_by_id = referred_user.id
         else:
             raise HTTPException(status_code=400, detail="Invalid referral code.")
 
-
+    # Create Plan
     plan = Plan(
         id=str(uuid4()),
         plan_type=request.subscription_type,
         timeperiod=request.timeperiod,
         Price=amount,
-        user_id=current_user.id
+        user_id=current_user.id,
+        Expiry=today + timedelta(days=validity)
     )
     db.add(plan)
 
-
+    # Create Invoice
     invoice = Invoices(
         id=str(uuid4()),
         user_id=current_user.id,
         plan_id=plan.id,
-        # created_at=str(datetime.utcnow()),
-        transaction_id=request.transaction_id
+        transaction_id=request.transaction_id,
+        created_at=today.strftime("%Y-%m-%d")
     )
     db.add(invoice)
-
     db.commit()
+
+    # Email to current user (subscriber)
+    invoice_context = {
+        "user_name": current_user.name,
+        "plan_type": plan.plan_type,
+        "timeperiod": plan.timeperiod,
+        "amount": plan.Price,
+        "transaction_id": invoice.transaction_id,
+        "invoice_id": invoice.id,
+        "date": datetime.utcnow().strftime("%d %b %Y, %H:%M UTC"),
+        "expiry": plan.Expiry
+    }
+
+    send_email(
+        to_email=current_user.email,
+        subject="Your Pennywise Subscription Invoice",
+        context=invoice_context,
+        template_name="invoice_email.html"
+    )
+
+    # Email to referrer (if any)
+    if referred_user:
+        ref_context = {
+            "user_name": referred_user.name,
+            "referred_user": current_user.name,
+            "referral_points_earned": plan.Price,
+            "plan_type": plan.plan_type,
+            "timeperiod": plan.timeperiod,
+            "transaction_id": invoice.transaction_id,
+        }
+
+        send_email(
+            to_email=referred_user.email,
+            subject="You've earned referral points!",
+            context=ref_context,
+            template_name="referral_reward_email.html"
+        )
 
     return {
         "message": "Subscription added successfully",

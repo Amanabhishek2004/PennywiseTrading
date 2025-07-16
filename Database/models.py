@@ -117,6 +117,7 @@ class Plan(Base):
     user = relationship("User", back_populates="plans")
     invoices = relationship("Invoices", back_populates="plan", cascade="all, delete-orphan")
     subscription = relationship("Subscription", back_populates="plans")
+    Expiry = Column(String , nullable = True) 
 
 class Invoices(Base):
     __tablename__ = "Invoices"
