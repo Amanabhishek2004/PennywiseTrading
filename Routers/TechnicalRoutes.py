@@ -17,7 +17,6 @@ from Stock.Technicals.DynamicSuppourtResistance import *
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from Routers.UserAccountRoutes import get_current_user , get_deep_size , track_read_and_data_usage
-from fastapi_cache.decorator import cache 
 
 router = APIRouter(
     default_response_class= ORJSONResponse , 
