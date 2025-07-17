@@ -5,7 +5,6 @@ from jinja2 import Environment, FileSystemLoader
 import os
 from dotenv import load_dotenv 
 
-load_dotenv()
 
 def send_email(to_email: str, subject: str, context: dict, template_name: str):
 
@@ -27,7 +26,7 @@ def send_email(to_email: str, subject: str, context: dict, template_name: str):
     smtp_server = "smtpout.secureserver.net"
     smtp_port = 465
     sender_email = "support@pennywisetrading.in"
-    sender_password = os.getenv("EMAIL_PASSWORD")
+    sender_password = 'Abhinav@2009'
 
     # Build email
     msg = MIMEMultipart("alternative")

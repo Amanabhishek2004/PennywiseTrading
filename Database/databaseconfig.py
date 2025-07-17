@@ -5,9 +5,8 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 import os 
 
-load_dotenv() 
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = 'postgresql://postgres.uitfyfywxzaczubnecft:AMAN%402004@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres'
 
 engine = create_engine(DATABASE_URL, echo=False)
 
