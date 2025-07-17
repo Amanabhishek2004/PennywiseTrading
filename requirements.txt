@@ -13,6 +13,7 @@ python-multipart
 psycopg2-binary
 pydantic[email]
 alembic
+orjson
 pydantic
 requests
 python-dotenv
