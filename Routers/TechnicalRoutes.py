@@ -12,14 +12,12 @@ from Stock.Technicals.rsiStrategy import *
 from Stock.Technicals.SuppourtResistance import *
 from Database.Schemas.PriceSchema import *
 from Stock.Technicals.SignalGenerator  import * 
-from fastapi.responses import ORJSONResponse
 from Stock.Technicals.DynamicSuppourtResistance import * 
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from Routers.UserAccountRoutes import get_current_user , get_deep_size , track_read_and_data_usage
 
 router = APIRouter(
-    default_response_class= ORJSONResponse , 
     prefix="/Stock", tags=["Technical Routes"])
 
 
