@@ -122,12 +122,11 @@ def get_current_user(
 
     return user
 
-def CheckforpremiumExpiry(
-    token: str = Depends(oauth2_scheme),
+def CheckForPremiumExpiry(
     db: Session = Depends(get_db),  
     current_user: User = Depends(get_current_user)
 ): 
-    today = datetime.date.today()
+    today = datetime.today().date()
 
     all_plans = db.query(Plan).filter(Plan.user_id == current_user.id).all()
 
@@ -143,6 +142,50 @@ def CheckforpremiumExpiry(
                 pass
 
     return expired_plans
+
+ADMINAPIKEY = [
+    "0UGhhKVqW1ofy0osb1dOcvabBS1vQZQHi4hKATs73an5pZY2xvv50xtnk0U",
+    "RqKwwgDKIgRSeSIN9F5LoKnUPSPbY6aZoVYh7gFaSSqzD6DgGeyJNRx9gBA",
+]
+
+
+def CheckForfinancialApiPlan( db: Session = Depends(get_db),  
+    current_user: User = Depends(get_current_user)) : 
+    adminusers = ["amanabhishek2004" , "Naitik"] 
+    apiplan = db.query(Plan).filter(Plan.id=="1").first() 
+    
+    if apiplan or current_user.username in adminusers : 
+        return apiplan
+    
+    else :
+       raise HTTPException(
+status_code= 401
+,detail= " You have not Purchased this route"
+        )
+
+def CheckForTechnicalApiPlan( db: Session = Depends(get_db),  
+    current_user: User = Depends(get_current_user)) : 
+    adminusers = ["amanabhishek2004" , "Naitik"] 
+    apiplan = db.query(Plan).filter(Plan.id=="2").first() 
+    
+    if apiplan or current_user.username in adminusers : 
+        return apiplan 
+    
+    else :
+       raise HTTPException(
+status_code= 401
+,detail= " You have not Purchased this route"
+        )
+
+
+def verify_premium_access(
+    apikey: str,
+    expiredplans: list[Plan] = Depends(CheckForPremiumExpiry),
+    utilizedplan: Plan = Depends(CheckForfinancialApiPlan)
+):  
+    if apikey not in ADMINAPIKEY and utilizedplan in expiredplans:
+        raise HTTPException(status_code=403, detail="Your premium plan has expired.")
+
 
 
 class UserCreate(BaseModel):

@@ -15,14 +15,14 @@ from Stock.Technicals.Meanreversion import *
 from datetime import timezone
 from Routers.TechnicalRoutes import GetSupportResistance
 from Stock.Fundametals.StockMetricCalculation import * 
-from Routers.UserAccountRoutes import get_current_user
+from Routers.UserAccountRoutes import get_current_user , verify_premium_access
 from Stock.Fundametals.StockComparables import * 
-
 from Stock.Fundametals.StockForwardRatios import  *
 
-router = APIRouter(prefix="/Admin", tags=["Admin"])
 
-router = APIRouter()
+
+router = APIRouter(prefix="/Admin", tags=["Admin"] , dependencies= [Depends(verify_premium_access)])
+
 
 # Assume get_db, Base, engine, and your models (Stock, EarningMetric, etc.) are already defined elsewhere
 
@@ -87,7 +87,7 @@ def safe_column(row, primary_key: str, fallback_key: str):
 
 
 @router.post("/upload/")
-async def upload_data(file: UploadFile, db: Session = Depends(get_db) ):
+async def upload_data(file: UploadFile, db: Session = Depends(get_db)):
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
