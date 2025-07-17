@@ -16,3 +16,4 @@ alembic
 pydantic
 requests
 python-dotenv
+jinja2
