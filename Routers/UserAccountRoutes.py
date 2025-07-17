@@ -122,6 +122,29 @@ def get_current_user(
 
     return user
 
+def CheckforpremiumExpiry(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),  
+    current_user: User = Depends(get_current_user)
+): 
+    today = datetime.date.today()
+
+    all_plans = db.query(Plan).filter(Plan.user_id == current_user.id).all()
+
+    expired_plans = []
+
+    for plan in all_plans:
+        if plan.Expiry:
+            try:
+                expiry_date = datetime.datetime.strptime(plan.Expiry, "%Y-%m-%d").date()
+                if expiry_date < today:
+                    expired_plans.append(plan)
+            except ValueError:
+                pass
+
+    return expired_plans
+
+
 class UserCreate(BaseModel):
     username: str
     password: str

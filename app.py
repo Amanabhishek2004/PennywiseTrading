@@ -41,12 +41,6 @@ origins = [
 ]
 
 
-
-from redis.asyncio import Redis
-from fastapi_cache import FastAPICache
-from fastapi_cache.backends.redis import RedisBackend
-
-
 event.listen(StockTechnicals, "after_update", create_alert_on_stock_update)
 # Add CORS Middleware
 app.add_middleware(
