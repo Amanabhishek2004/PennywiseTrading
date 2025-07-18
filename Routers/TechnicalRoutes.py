@@ -116,7 +116,7 @@ def GetSupportResistance(
     if not stock:
         raise HTTPException(status_code=404, detail="Stock not found")
 
-    DATA = UpdateSuppourt(ticker, db, period)
+    DATA = CreatepatternSuppourt(ticker, db, period)
     track_read_and_data_usage(db, current_user.id, DATA)
     return DATA
 

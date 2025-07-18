@@ -88,9 +88,6 @@ def safe_column(row, primary_key: str, fallback_key: str):
 
 @router.post("/upload/")
 async def upload_data(file: UploadFile, db: Session = Depends(get_db)):
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-
     if not file.filename.endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="Only .xlsx files are supported")
 
@@ -101,6 +98,39 @@ async def upload_data(file: UploadFile, db: Session = Depends(get_db)):
 
     for row_index, row in df.iterrows():
         banking = row.get("industry") == "Banks - Regional"
+        ticker = safe_get_as_string(row.get('Ticker'))
+
+        existing_stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
+
+        if existing_stock:
+            stock = existing_stock
+        else:
+            stock = Stock(id=str(uuid4()), Ticker=ticker)
+            db.add(stock)
+
+        # Update stock fields
+        stock.CurrentPrice = safe_get_as_float(row.get("regularMarketPrice"), 0)
+        stock.marketCap = safe_get_as_float(row.get("regularMarketPrice") * row.get("sharesOutstanding", 0), 0)
+        stock.CompanyName = safe_get_as_string(row.get("longName"))
+        stock.Description = row.get("longBusinessSummary", "N/A")
+        stock.Industry = row.get("industry", "N/A")
+        stock.FloatShares = row.get("floatShares", 0)
+        stock.sharesOutstanding = row.get("sharesOutstanding", 0)
+        stock.sector = safe_get_as_string(row.get("sector"), "Unknown")
+        stock.beta = safe_get_as_float(row.get("beta"), 0)
+
+        db.commit()
+        db.refresh(stock)
+
+        # Delete existing related records
+        db.query(Quaterlyresult).filter_by(stock_id=stock.id).delete()
+        db.query(EarningMetric).filter_by(stock_id=stock.id).delete()
+        db.query(Expenses).filter_by(stock_id=stock.id).delete()
+        db.query(Financials).filter_by(stock_id=stock.id).delete()
+        db.query(ValuationMetrics).filter_by(stock_id=stock.id).delete()
+        db.query(Days).filter_by(stock_id=stock.id).delete()
+        db.query(Shareholding).filter_by(stock_id=stock.id).delete()
+        db.commit()
 
         operating_cashflow = convert_to_list(safe_column(row, "Cash from Operating Activity+", "Cash from Operating Activity"))
         interest_expense = convert_to_list(safe_column(row, "Interest", "Interest"))
@@ -125,23 +155,6 @@ async def upload_data(file: UploadFile, db: Session = Depends(get_db)):
         cod = CalculateCOI(interest_expense, debt)
         roic = CalculateROIC(roic_list)
         icr = CalculateICR(convert_to_list(safe_column(row, "Profit before tax", "Profit before tax")), interest_expense)
-
-        stock = Stock(
-            id=str(uuid4()),
-            Ticker=safe_get_as_string(row.get('Ticker')),
-            CurrentPrice=safe_get_as_float(row.get("regularMarketPrice"), 0),
-            marketCap=safe_get_as_float(row.get("regularMarketPrice") * row.get("sharesOutstanding", 0), 0),
-            CompanyName=safe_get_as_string(row.get("longName")),
-            Description=row.get("longBusinessSummary", "N/A"),
-            Industry=row.get("industry", "N/A"),
-            FloatShares=row.get("floatShares", 0),
-            sharesOutstanding=row.get("sharesOutstanding", 0),
-            sector=safe_get_as_string(row.get("sector"), "Unknown"),
-            beta=safe_get_as_float(row.get("beta"), 0),
-        )
-        db.add(stock)
-        db.commit()
-        db.refresh(stock)
 
         db.add(Quaterlyresult(
             id=str(uuid4()),
@@ -176,21 +189,22 @@ async def upload_data(file: UploadFile, db: Session = Depends(get_db)):
             NetIncome=safe_get_as_string(safe_column(row, "Net Profit+", "Net Profit")),
             NetIncome_cagr=float(safe_get_value(calculate_growth_with_rolling(safe_get_as_string(safe_column(row, "Net Profit+", "Net Profit"))))),
         ))
-        expenses = Expenses(
-                    id=str(uuid4()),
-                    stock_id=stock.id,
-                    CurrentDebt_cagr=float(safe_get_value(calculate_growth_with_rolling(safe_get_as_string(row.get("Borrowing+"))))),
-                    CapitalExpenditure_cagr=float(safe_get_value(calculate_growth_with_rolling(capex))),
-                    CapitalExpenditure=str(capex),
-                    dividendPayoutratio=safe_get_as_string(row.get("Dividend Payout %"), 0),
-                    InterestExpense_cagr=float(safe_get_value(calculate_growth_with_rolling(safe_get_as_string(row.get("Interest"))))),
-                    EBIT=safe_get_as_string(row.get("Profit before tax")),
-                    TaxRate=safe_get_as_string(row.get("Tax %"), "0"),
-                    Intrest_Expense=safe_get_as_string(row.get("Interest"), "0"),
-                    Operating_Expense=safe_get_as_string(row.get("Expenses+"), "0"),
-                    WACC=float(safe_get_value(wacc))
-                )
-        db.add(expenses)
+
+        db.add(Expenses(
+            id=str(uuid4()),
+            stock_id=stock.id,
+            CurrentDebt_cagr=float(safe_get_value(calculate_growth_with_rolling(safe_get_as_string(row.get("Borrowing+"))))),
+            CapitalExpenditure_cagr=float(safe_get_value(calculate_growth_with_rolling(capex))),
+            CapitalExpenditure=str(capex),
+            dividendPayoutratio=safe_get_as_string(row.get("Dividend Payout %"), 0),
+            InterestExpense_cagr=float(safe_get_value(calculate_growth_with_rolling(safe_get_as_string(row.get("Interest"))))),
+            EBIT=safe_get_as_string(row.get("Profit before tax")),
+            TaxRate=safe_get_as_string(row.get("Tax %"), "0"),
+            Intrest_Expense=safe_get_as_string(row.get("Interest"), "0"),
+            Operating_Expense=safe_get_as_string(row.get("Expenses+"), "0"),
+            WACC=float(safe_get_value(wacc))
+        ))
+
         db.add(Financials(
             id=str(uuid4()),
             stock_id=stock.id,
@@ -250,14 +264,9 @@ async def upload_data(file: UploadFile, db: Session = Depends(get_db)):
         ))
 
         db.commit()
-
         update_comparables(stock, db)
-        # try:
-        # except Exception as e:
-        #     print(f"Failed to update comparables for {stock.Ticker}: {e}")
 
-    return {"message": "Data uploaded and ratios calculated successfully"}
-
+    return {"message": "Data uploaded and updated successfully."}
 
 
 

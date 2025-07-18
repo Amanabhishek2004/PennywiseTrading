@@ -380,16 +380,17 @@ class SwingPoints(Base):
     stock_id = Column(String, ForeignKey("Stocks.id", ondelete="SET NULL"), nullable=True)
     stock = relationship("Stock", back_populates="swingpoints")
 
+
 def create_alert_on_stock_update(mapper, connection, target):
     if target.RsiSlope is None or target.CurrentRsi is None:
-        return  # Skip processing if RSI-related values are not available
+        return  # Skip if RSI values are missing
 
     session = SessionLocal()
     period = target.period
 
     channel = session.query(Channel).filter(Channel.stock_id == target.stock_id, Channel.period == period).first()
     signal = GenrateSignals(target.ticker, session, period)
-    print(channel.lower_channel_slope  ,target.RsiSlope )
+
     if not channel or not signal or "RSI Signal" not in signal or "RSI" not in signal["RSI Signal"]:
         session.close()
         return
@@ -412,10 +413,32 @@ def create_alert_on_stock_update(mapper, connection, target):
     if target.RsiSlope < 0 and channel.lower_channel_slope > 0:
         alert_cases.append({"tag": "bearish", "rsiPeakdivergence": False})
 
+    price_data = session.query(PriceData).filter_by(stock_id=target.stock_id, period=period).order_by(PriceData.timestamp.desc()).first()
+    if price_data:
+        current_price = price_data.close
+        # Threshold for proximity (e.g., 2% of support/resistance level)
+        threshold = 0.002
+        
+        if (
+            target.CurrentSupport
+            and target.CurrentRsi <= 20
+            and abs(current_price - target.CurrentSupport) / target.CurrentSupport <= threshold
+        ):
+            alert_cases.append({"tag": "Support Touch", "rsiPeakdivergence": False})
+        
+        if (
+            target.CurrentResistance
+            and target.CurrentRsi > 80
+            and abs(current_price - target.CurrentResistance) / target.CurrentResistance <= threshold
+        ):
+            alert_cases.append({"tag": "Resistance Touch", "rsiPeakdivergence": False})
+
+
     for case in alert_cases:
         sql = text("""
             INSERT INTO "Alerts" (
-                id, user_id, "Ticker", time, "RsiSlope", "lowerchannelSlope", "upperchannelSlope", "rsiPeakdivergence", tag, period
+                id, user_id, "Ticker", time, "RsiSlope", "lowerchannelSlope", "upperchannelSlope",
+                "rsiPeakdivergence", tag, period
             )
             SELECT
                 :id, w.user_id, :ticker, :time, :rsislope, :lower, :upper, :peak, :tag, :period
@@ -438,7 +461,7 @@ def create_alert_on_stock_update(mapper, connection, target):
             {
                 "id": str(uuid4()),
                 "ticker": target.ticker,
-                "time": str(datetime.today().now()),
+                "time": str(datetime.now()),
                 "rsislope": target.RsiSlope,
                 "lower": channel.lower_channel_slope,
                 "upper": channel.upper_channel_slope,
@@ -449,6 +472,7 @@ def create_alert_on_stock_update(mapper, connection, target):
                 "period": period
             }
         )
+
     session.commit()
     session.close()
 

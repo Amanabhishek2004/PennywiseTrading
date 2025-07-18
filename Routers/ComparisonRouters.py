@@ -94,7 +94,7 @@ def calculate_median_for_metrics(request: PeersRequest, db: Session = Depends(ge
                 print(f"[❌ ERROR] Failed to compute median for: {section} -> {key}")
                 print(f"   Values: {values}")
                 print(f"Error: {e}")
-    track_read_and_data_usage(medians)
+    track_read_and_data_usage(db , user_id=current_user.id , data_obj=medians  )
     return medians
 
 def calculate_median_value(benchmark, stock):
