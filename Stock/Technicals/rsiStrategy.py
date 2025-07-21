@@ -155,8 +155,8 @@ def CalculateRSIpeakMaxmin(db, close_price, currentrsi, ticker, period, interval
     # Query RSI data within the interval
     data_min = db.query(PriceData).filter(
         PriceData.date.in_(dates),
-        PriceData.close_price >= close_price,
-        PriceData.RSI < currentrsi
+        PriceData.close_price <= close_price,
+        PriceData.RSI > currentrsi
     ).all()
 
     data_max = db.query(PriceData).filter(

@@ -17,14 +17,23 @@ from Routers.UserAccountRoutes import get_current_user , verify_premium_access
 
 
 router = APIRouter(prefix="/Stock", tags=["Stocks"] , 
-                   dependencies= [Depends(verify_premium_access)])
-
+                   dependencies= [Depends(verify_premium_access)]
+                   )
 
 
 @router.get("/", response_model=List[StockSearchschema])
 def get_all_stocks(db: Session = Depends(get_db)):
     stocks = db.query(Stock).all()
     return stocks
+
+
+
+
+@router.get("/StockDetails", response_model=List[StockSchema])
+def get_all_stocks(db: Session = Depends(get_db)):
+    stocks = db.query(Stock).all()
+    return stocks
+
 
 
 
@@ -40,7 +49,8 @@ class PeersRequest(BaseModel):
     tickers: List[str]
 
 @router.post("/peerstocks/", response_model=List[StockSchema])
-def GetPeers(request: PeersRequest, db: Session = Depends(get_db)):
+def GetPeers(request: PeersRequest,
+              db: Session = Depends(get_db)):
     tickers = request.tickers
     print(tickers) 
     # Validate all tickers exist

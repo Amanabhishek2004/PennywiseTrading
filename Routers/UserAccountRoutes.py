@@ -73,7 +73,6 @@ def authenticate_user(db: Session, username: str, password: str):
     return user
 
 
-DATA_FETCHED_MB = 0.5
 from datetime import date
 
 
@@ -194,10 +193,17 @@ def CheckForTechnicalApiPlan(
 
 def verify_premium_access(
     apikey: str,
+    db: Session = Depends(get_db),
     expiredplans: list[Plan] = Depends(CheckForPremiumExpiry),
     utilizedplan: Plan = Depends(CheckForfinancialApiPlan),
 ):
-    if apikey not in ADMINAPIKEY and utilizedplan in expiredplans:
+    # Check if apikey belongs to a user
+    user = db.query(User).filter(User.apikey == apikey).first()
+
+    if not user and apikey not in ADMINAPIKEY:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    if utilizedplan in expiredplans and apikey not in ADMINAPIKEY:
         raise HTTPException(status_code=403, detail="Your premium plan has expired.")
 
 
@@ -388,6 +394,7 @@ def add_multiple_subscriptions(
 ):
     today = date.today()
     result = []
+    plan_summaries = []
 
     # Referral processing (only once for entire batch)
     referred_user = None
@@ -403,6 +410,8 @@ def add_multiple_subscriptions(
                 status_code=400,
                 detail=f"Invalid referral code: {request.referral_code}",
             )
+
+    total_amount = 0
 
     for sub_req in request.subscriptions:
         # Fetch subscription info
@@ -442,24 +451,6 @@ def add_multiple_subscriptions(
         )
         db.add(invoice)
 
-        # Invoice email
-        invoice_context = {
-            "user_name": current_user.name,
-            "plan_type": plan.plan_type,
-            "timeperiod": plan.timeperiod,
-            "amount": plan.Price,
-            "transaction_id": invoice.transaction_id,
-            "invoice_id": invoice.id,
-            "date": datetime.utcnow().strftime("%d %b %Y, %H:%M UTC"),
-            "expiry": plan.Expiry,
-        }
-        send_email(
-            to_email=current_user.email,
-            subject="Your Pennywise Subscription Invoice",
-            context=invoice_context,
-            template_name="invoice_email.html",
-        )
-
         result.append(
             {
                 "subscription_type": plan.plan_type,
@@ -469,18 +460,43 @@ def add_multiple_subscriptions(
             }
         )
 
+        plan_summaries.append(
+            {
+                "plan_type": plan.plan_type,
+                "timeperiod": plan.timeperiod,
+                "amount": plan.Price,
+                "expiry": plan.Expiry.strftime("%d %b %Y"),
+                "invoice_id": invoice.id,
+            }
+        )
+
+        total_amount += plan.Price
+
         # Update referred_user points for each item
         if referred_user:
             referred_user.points += plan.Price
 
-    # Send referral email once after all rewards
+    invoice_context = {
+        "user_name": current_user.name,
+        "plans": plan_summaries,
+        "transaction_id": request.transaction_id,
+        "total_amount": total_amount,
+        "date": datetime.utcnow().strftime("%d %b %Y, %H:%M UTC"),
+    }
+
+    send_email(
+        to_email=current_user.email,
+        subject="Your Pennywise Subscription Invoice",
+        context=invoice_context,
+        template_name="invoice_email.html",
+    )
+
+    # ✅ One referral email (unchanged)
     if referred_user:
         ref_context = {
             "user_name": referred_user.name,
             "referred_user": current_user.name,
-            "referral_points_earned": sum(
-                item["amount"] or subscription.amount for item in request.subscriptions
-            ),
+            "referral_points_earned": total_amount,
             "plan_type": "Multiple",
             "timeperiod": "Batch",
             "transaction_id": request.transaction_id,
@@ -495,3 +511,4 @@ def add_multiple_subscriptions(
     db.commit()
 
     return {"message": "All subscriptions processed successfully.", "data": result}
+

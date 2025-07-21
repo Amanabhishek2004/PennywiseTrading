@@ -1,25 +1,33 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Your Pennywise Invoice</title>
-</head>
-<body>
-    <h2>Hi {{ user_name }},</h2>
-    <p>Thanks for purchasing a subscription with Pennywise.</p>
+<h2>Hi {{ user_name }},</h2>
+<p>Thank you for subscribing to Pennywise!</p>
 
-    <h3>Invoice Details:</h3>
-    <ul>
-        <li><strong>Plan Type:</strong> {{ plan_type }}</li>
-        <li><strong>Time Period:</strong> {{ timeperiod }}</li>
-        <li><strong>Amount:</strong> ₹{{ amount }}</li>
-        <li><strong>Transaction ID:</strong> {{ transaction_id }}</li>
-    </ul>
+<p>Here are your subscription details:</p>
 
-    {% if referrer_name %}
-        <p>Thanks for using a referral code! <strong>{{ referrer_name }}</strong> has earned reward points.</p>
-    {% endif %}
+<table border="1" cellpadding="10" cellspacing="0">
+  <thead>
+    <tr>
+      <th>Plan Type</th>
+      <th>Time Period</th>
+      <th>Amount</th>
+      <th>Expiry</th>
+      <th>Invoice ID</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for plan in plans %}
+      <tr>
+        <td>{{ plan.plan_type }}</td>
+        <td>{{ plan.timeperiod }}</td>
+        <td>₹{{ plan.amount }}</td>
+        <td>{{ plan.expiry }}</td>
+        <td>{{ plan.invoice_id }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
 
-    <p>Regards,<br>Pennywise Team</p>
-</body>
-</html>
+<p><strong>Total Amount:</strong> ₹{{ total_amount }}</p>
+<p><strong>Transaction ID:</strong> {{ transaction_id }}</p>
+<p><strong>Date:</strong> {{ date }}</p>
+
+<p>We appreciate your trust in Pennywise.</p>

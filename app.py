@@ -89,7 +89,6 @@ def Returns(ticker:str , db:Session =  Depends(get_db) , current_user: User = De
         return data
 
 
-
 class PortfolioRequest(BaseModel):
     stocks: List[str]
 
