@@ -154,7 +154,8 @@ def CreateNewLevels(
 
     data = CreatepatternSuppourt(ticker, db, period)
     track_read_and_data_usage(db, current_user.id, data)
-    return {"DATA": data}
+
+    return {"Data": data}
 
 
 @router.get("/GetPrices/", response_model=List[PriceDataResponse])
@@ -207,7 +208,7 @@ def GenerateBuySellSignals(
     stock_data = db.query(Stock).filter(Stock.Ticker == ticker).first()
     currentprice = float(stock_data.CurrentPrice)
     tolerance = 0.008 * currentprice
-
+    
     support = (
         db.query(SupportData)
         .filter(
@@ -233,6 +234,7 @@ def GenerateBuySellSignals(
     def to_py(val):
         return val.item() if hasattr(val, "item") else val
 
+
     result = SignalResponseSchema(
         Signal={k: {ik: to_py(iv) for ik, iv in v.items()} for k, v in signal.items()},
         message=message,
@@ -244,19 +246,20 @@ def GenerateBuySellSignals(
     return result
 
 
-@router.get("/SwingPoints/{ticker}")
+@router.get("/SwingPoints/{ticker}" )
 def GetSwingPoints(
     ticker: str,
     apikey: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     expiredplans: list[Plan] = Depends(CheckForPremiumExpiry),
-    utilizedplan: Plan = Depends(CheckForTechnicalApiPlan),
+    utilizedplan: Plan = Depends(CheckForTechnicalApiPlan), 
+    period : str ="1d"
 ):
     if apikey not in ADMINAPIKEY and utilizedplan in expiredplans:
         raise HTTPException(status_code=403, detail="Your premium plan has expired.")
 
-    data = CalculateSwingPoints(ticker, db)
+    data = CalculateSwingPoints(ticker, db , period)
     track_read_and_data_usage(db, current_user.id, data)
     return data[0]
 
@@ -273,6 +276,8 @@ def CalculateVwap(
     if apikey not in ADMINAPIKEY and utilizedplan in expiredplans:
         raise HTTPException(status_code=403, detail="Your premium plan has expired.")
 
-    vwap = GetVWAPsFromLatestDivergences(ticker, db)
-    track_read_and_data_usage(db, current_user.id, vwap)
-    return vwap
+    return { 
+        "detail" : "Route Comming Soon"
+    } 
+
+

@@ -293,11 +293,11 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db)  ,  current_
     # Try NSE first, fallback to BSE
     data_daily = stock_data.history(period="10y", interval="1d")
     data_min = stock_data.history(period="8d", interval="5m")
-    data_30min = stock_data.history(period="60d", interval="30m")
+
     if data_daily.empty and data_min.empty and data_30min.empty:
         data_daily = yf.download(f"{ticker}.BS", period="5y", interval="1d")
         data_min = yf.download(f"{ticker}.BS", period="8d", interval="5m")
-        data_30min = yf.download(f"{ticker}.BS", period="80d", interval="30m")
+
     if data_daily.empty and data_min.empty and data_30min.empty:
         return {"detail": f"No data available for ticker {ticker} (.NS or .BS)."}
 
@@ -315,7 +315,7 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db)  ,  current_
                 df.index = df.index.tz_localize(None)
         data_daily = data_daily[data_daily.index > updated_time]
         data_min = data_min[data_min.index > updated_time]
-        data_30min = data_30min[data_30min.index > updated_time]
+
 
     if data_daily.empty and data_min.empty and data_30min.empty:
         return {"detail": f"No new data to update for ticker {ticker}."}
@@ -329,10 +329,7 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db)  ,  current_
         data_min['RSI'] = vbt.RSI.run(data_min['Close'], window=14).rsi
         data_min['OBV'] = vbt.OBV.run(data_min['Close'], data_min['Volume']).obv
         data_min = data_min.dropna()
-    if not data_30min.empty:
-        data_30min['RSI'] = vbt.RSI.run(data_30min['Close'], window=14).rsi
-        data_30min['OBV'] = vbt.OBV.run(data_30min['Close'], data_30min['Volume']).obv
-        data_30min = data_30min.dropna()
+
 
     # Store daily data
     for date, row in data_daily.iterrows():
@@ -390,33 +387,6 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db)  ,  current_
                 period="1m",
             ))
 
-    # Store 30-minute data
-    for timestamp, row in data_30min.iterrows():
-        timestamp_str = format_with_colon(timestamp)
-        existing_record = (
-            db.query(PriceData)
-            .filter(
-                PriceData.ticker == ticker,
-                PriceData.date == timestamp_str,
-                PriceData.period == "30m",
-            )
-            .first()
-        )
-        if not existing_record:
-            db.add(PriceData(
-                id=str(uuid4()),
-                stock_id=stock.id,
-                ticker=ticker,
-                date=timestamp_str,
-                open_price=get_scalar(row["Open"], ticker),
-                high_price=get_scalar(row["High"], ticker),
-                low_price=get_scalar(row["Low"], ticker),
-                close_price=get_scalar(row["Close"], ticker),
-                RSI=get_scalar(row["RSI"], ticker),
-                OnbalanceVolume=get_scalar(row["OBV"], ticker),
-                volume=get_scalar(row["Volume"], ticker),
-                period="30m",
-            ))
 
     # Update stock's updated field and current price
     current_time = datetime.now(timezone(timedelta(hours=5, minutes=30)))
@@ -426,14 +396,8 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db)  ,  current_
         if hasattr(last_close, "item"):
             stock.CurrentPrice = float(last_close.item())
         else:
-            stock.CurrentPrice = float(last_close)
-    elif not data_30min.empty:
-        last_close = data_30min["Close"].iloc[-1]
-        if hasattr(last_close, "item"):
-            stock.CurrentPrice = float(last_close.item())
-        else:
-            stock.CurrentPrice = float(last_close)
-    elif not data_daily.empty:
+  
+    e not data_daily.empty:
         last_close = data_daily["Close"].iloc[-1]
         if hasattr(last_close, "item"):
             stock.CurrentPrice = float(last_close.item())
@@ -455,28 +419,25 @@ def UpdateAllTechnicaldata(ticker ,db: Session = Depends(get_db) , timeinterval 
         
         c1 = CreateVolumeChannel(db , stock.Ticker , period="1m")
         c2 = CreateVolumeChannel(db , stock.Ticker , period="1d") 
-        c3 = CreateVolumeChannel(db , stock.Ticker , period="30m") 
 
-        data_30m = MakeStrongSupportResistance(stock.Ticker , db , period = "30m" ) 
+
         data_1d = MakeStrongSupportResistance(stock.Ticker , db , period = "1d" )
         data_1m = MakeStrongSupportResistance(stock.Ticker , db , period = "1m")
         
-        data_30m = CreatepatternSuppourt(stock.Ticker , db , period = "30m" ) 
+
         data_1d = CreatepatternSuppourt(stock.Ticker , db , period = "1d" )
         data_1m = CreatepatternSuppourt(stock.Ticker , db , period = "1m")
  
         channeldata = CreateChannel(db, stock.Ticker,timeinterval ,period="1m")             
         channeldata = CreateChannel(db, stock.Ticker,timeinterval ,period="1d")             
-        channeldata = CreateChannel(db, stock.Ticker,timeinterval ,period="30m") 
 
-        Rsidata = CalculateRSI( stock.Ticker,db , period = "30m")
+
         Rsidata = CalculateRSI( stock.Ticker,db , period = "1m")
         Rsidata = CalculateRSI( stock.Ticker,db , period = "1d")
 
 
         return { "data1m" : data_1m  , 
-            "data1d" : data_1d , 
-            "data30m" : data_30m}
+            "data1d" : data_1d}
 
 
 
@@ -526,31 +487,12 @@ def CreateNewLevels(ticker: str, db: Session = Depends(get_db) , current_user: U
             db.add(technicaldata_1m)
 
     # Create support and resistance for the 30m period
-    data_30m = CreatepatternSuppourt(ticker, db, "30m")
-    technicaldata_30m = db.query(StockTechnicals).join(Stock).filter(
-        Stock.Ticker == ticker, 
-        StockTechnicals.period == "30m"
-    ).first()
-    if technicaldata_30m:
-        technicaldata_30m.CurrentSupport = data_30m.get("Suppourt", None)
-        technicaldata_30m.CurrentResistance = data_30m.get("Resistance", None)
-    else:
-        stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-        if stock:
-            technicaldata_30m = StockTechnicals(
-                stock_id=stock.id,
-                ticker=ticker,
-                period="30m",
-                CurrentSupport=data_30m.get("Suppourt", None),
-                CurrentResistance=data_30m.get("Resistance", None)
-            )
-            db.add(technicaldata_30m)
-
+  
     db.commit()
 
     CreateVolumeChannel(db, ticker, period="1m")
     CreateVolumeChannel(db, ticker, period="1d")
-    CreateVolumeChannel(db, ticker, period="30m")
+
 
     return {
         "status": "Success",

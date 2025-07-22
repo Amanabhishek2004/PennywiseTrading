@@ -67,13 +67,12 @@ def GetPeers(request: PeersRequest,
             print("Channels done")
             CreateChannel(db , stock , period="1m")
             CreateChannel(db , stock , period="1d")
-            CreateChannel(db , stock , period="30m")
 
             print(" Rsi Channels done")
 
             CalculateRSI( stock,db , period = "1m")
             CalculateRSI( stock,db , period = "1d")
-            CalculateRSI( stock,db , period = "30m")
+
 
 
 
@@ -83,16 +82,13 @@ def GetPeers(request: PeersRequest,
 
             MakeStrongSupportResistance(stock , db , "1m")
             MakeStrongSupportResistance(stock , db , "1d")
-            MakeStrongSupportResistance(stock , db , "30m")
+
 
 
             #  levels due to patterns  
             CreateNewLevels(stock  , db )
-
-
-
         else:
-               UpdateAllTechnicaldata(stock, db , current_user=current_user)
+               UpdateAllTechnicaldata(stock, db)
 
     stocks = db.query(Stock).filter(Stock.Ticker.in_(tickers)).all()
 

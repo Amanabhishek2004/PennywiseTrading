@@ -1,6 +1,4 @@
-# -----------------------------------------------------------
-#  imports
-# -----------------------------------------------------------
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel, EmailStr
@@ -198,9 +196,10 @@ def verify_premium_access(
     utilizedplan: Plan = Depends(CheckForfinancialApiPlan),
 ):
     # Check if apikey belongs to a user
-    user = db.query(User).filter(User.apikey == apikey).first()
+    apikey_record = db.query(ApiKeyUsage).filter(ApiKeyUsage.apikey == apikey).first()
 
-    if not user and apikey not in ADMINAPIKEY:
+
+    if not apikey_record and apikey not in ADMINAPIKEY:
         raise HTTPException(status_code=403, detail="Invalid API key")
 
     if utilizedplan in expiredplans and apikey not in ADMINAPIKEY:

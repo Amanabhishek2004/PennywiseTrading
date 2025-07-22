@@ -1,12 +1,10 @@
-def CalculateSwingPoints(ticker, db):
+def CalculateSwingPoints(ticker, db , period):
     import pandas as pd
     import vectorbt as vbt
     from Database.models import PriceData, SwingPoints, Stock
-
-    # Query PriceData for the ticker and period "30m"
     records = (
         db.query(PriceData)
-        .filter(PriceData.ticker == ticker, PriceData.period == "1m")
+        .filter(PriceData.ticker == ticker, PriceData.period == period)
         .order_by(PriceData.date.asc())
         .all()
     )
@@ -138,6 +136,7 @@ def CalculateSwingPoints(ticker, db):
             db.add(SwingPoints(
                 pattern="Weak",
                 time=idx,
+                period = period , 
                 tag="SwingLow",
                 stock_id=stock_id
             ))
@@ -146,6 +145,7 @@ def CalculateSwingPoints(ticker, db):
             db.add(SwingPoints(
                 pattern="Weak",
                 time=idx,
+                period = period , 
                 tag="SwingHigh",
                 stock_id=stock_id
             ))
@@ -154,6 +154,7 @@ def CalculateSwingPoints(ticker, db):
             db.add(SwingPoints(
                 pattern="BullishDivergence",
                 time=idx,
+                period = period , 
                 tag="SwingLow",
                 stock_id=stock_id
             ))
@@ -162,6 +163,7 @@ def CalculateSwingPoints(ticker, db):
             db.add(SwingPoints(
                 pattern="BearishDivergence",
                 time=idx,
+                period = period ,   
                 tag="SwingHigh",
                 stock_id=stock_id
             ))
