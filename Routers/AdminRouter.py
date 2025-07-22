@@ -396,8 +396,8 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db)  ,  current_
         if hasattr(last_close, "item"):
             stock.CurrentPrice = float(last_close.item())
         else:
-  
-    e not data_daily.empty:
+             pass  
+    if not data_daily.empty:
         last_close = data_daily["Close"].iloc[-1]
         if hasattr(last_close, "item"):
             stock.CurrentPrice = float(last_close.item())
