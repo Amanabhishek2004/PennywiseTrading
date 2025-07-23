@@ -136,7 +136,6 @@ def CheckForPremiumExpiry(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     today = datetime.today().date()
-
     all_plans = db.query(Plan).filter(Plan.user_id == current_user.id).all()
 
     expired_plans = []
@@ -149,6 +148,7 @@ def CheckForPremiumExpiry(
                     expired_plans.append(plan)
             except ValueError:
                 pass
+   
 
     return expired_plans
 

@@ -9,7 +9,7 @@ from typing import List
 from Database.Schemas.StockSchema import *
 import math
 from Stock.Technicals.rsiStrategy import *
-from Stock.Technicals.SuppourtResistance import *
+from Stock.Technicals.SuppourtResistance import CreatepatternSuppourt , MakeStrongSupportResistance
 from Database.Schemas.PriceSchema import *
 from Stock.Technicals.SignalGenerator import *
 from Stock.Technicals.DynamicSuppourtResistance import *
@@ -99,7 +99,7 @@ def GetStockChannels(
     return channels
 
 
-@router.get("/GetSupportResistance", response_model=dict)
+@router.get("/GetSupportResistances/{ticker}", response_model=Dict[str, Any] )
 def GetSupportResistance(
     ticker: str,
     period,
@@ -108,7 +108,8 @@ def GetSupportResistance(
     current_user: User = Depends(get_current_user),
     expiredplans: list[Plan] = Depends(CheckForPremiumExpiry),
     utilizedplan: Plan = Depends(CheckForTechnicalApiPlan),
-):
+):   
+    # raise HTTPException(status_code=404, detail="Stock not found")
     if apikey not in ADMINAPIKEY and utilizedplan in expiredplans:
         raise HTTPException(status_code=403, detail="Your premium plan has expired.")
 
@@ -117,11 +118,12 @@ def GetSupportResistance(
         raise HTTPException(status_code=404, detail="Stock not found")
 
     DATA = CreatepatternSuppourt(ticker, db, period)
+    print("data" , DATA)
     track_read_and_data_usage(db, current_user.id, DATA)
-    return DATA
+    return {"data" : DATA}
 
 
-@router.post("/SuppourtResistance", response_model=dict)
+@router.post("/SuppourtResistance")
 def CreateSuppourtResistances(
     ticker: str,
     apikey: str,

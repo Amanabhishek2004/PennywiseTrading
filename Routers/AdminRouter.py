@@ -13,7 +13,7 @@ import numpy as np
 from Stock.Technicals.SuppourtResistance import *
 from Stock.Technicals.Meanreversion import * 
 from datetime import timezone
-from Routers.TechnicalRoutes import GetSupportResistance
+
 from Stock.Fundametals.StockMetricCalculation import * 
 from Routers.UserAccountRoutes import get_current_user , verify_premium_access
 from Stock.Fundametals.StockComparables import * 
@@ -294,13 +294,6 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db)  ,  current_
     data_daily = stock_data.history(period="10y", interval="1d")
     data_min = stock_data.history(period="8d", interval="5m")
 
-    if data_daily.empty and data_min.empty and data_30min.empty:
-        data_daily = yf.download(f"{ticker}.BS", period="5y", interval="1d")
-        data_min = yf.download(f"{ticker}.BS", period="8d", interval="5m")
-
-    if data_daily.empty and data_min.empty and data_30min.empty:
-        return {"detail": f"No data available for ticker {ticker} (.NS or .BS)."}
-
     # Filter data after updated_time if available
     if updated_time:
         updated_time = pd.Timestamp(updated_time)
@@ -308,7 +301,7 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db)  ,  current_
         if updated_time.tzinfo is not None:
             updated_time = updated_time.tz_convert(None) if hasattr(updated_time, "tz_convert") else updated_time.tz_localize(None)
         # Ensure index is DatetimeIndex and timezone-naive
-        for df in [data_daily, data_min, data_30min]:
+        for df in [data_daily, data_min]:
             if not isinstance(df.index, pd.DatetimeIndex):
                 df.index = pd.to_datetime(df.index)
             if df.index.tz is not None:
@@ -317,7 +310,7 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db)  ,  current_
         data_min = data_min[data_min.index > updated_time]
 
 
-    if data_daily.empty and data_min.empty and data_30min.empty:
+    if data_daily.empty and data_min.empty :
         return {"detail": f"No new data to update for ticker {ticker}."}
 
     # Calculate indicators

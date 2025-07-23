@@ -374,7 +374,7 @@ class SwingPoints(Base):
     __tablename__ = "SwingPoints"
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     pattern = Column(String)
-    period = Column(String, index=True)
+    period = Column(String, index=True , nullable=True)
     time = Column(String)
     tag = Column(String)
     stock_id = Column(String, ForeignKey("Stocks.id", ondelete="SET NULL"), nullable=True)

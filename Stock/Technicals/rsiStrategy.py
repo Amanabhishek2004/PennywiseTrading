@@ -124,49 +124,22 @@ def CalculateRSIpeakMaxmin(db, close_price, currentrsi, ticker, period, interval
         print("No price data found.")
         return False, False
 
-    # Use the date from the last PriceData instance
-    last_date_str = last_price.date
-    ist_offset = timezone(timedelta(hours=5, minutes=30))
-
-    def format_with_colon(dt):
-        """Format datetime with a colon in the timezone offset and seconds set to 00."""
-        return dt.strftime('%Y-%m-%d %H:%M:00%z')[:-2] + ':' + dt.strftime('%Y-%m-%d %H:%M:00%z')[-2:]
-
-    if period == "1d":
-        start_date = datetime.fromisoformat(str(last_date_str)).date()
-        dates = [
-            format_with_colon(
-                datetime.combine(start_date, datetime.min.time(), ist_offset) - timedelta(days=i)
-            )
-            for i in range(interval)
-        ]
-    else:
-        interval_data_mock = int(period[0])
-        interval_data = 30 if interval_data_mock == 3 else 5
-        start_datetime = datetime.fromisoformat(str(last_date_str)).replace(tzinfo=ist_offset)
-        dates = [
-            format_with_colon((start_datetime - timedelta(minutes=i * interval_data)).replace(second=0))
-            for i in range(interval)
-        ]
-
-    print(dates)
-    tolerance = 0.003 *close_price
 
     # Query RSI data within the interval
-    data_min = db.query(PriceData).filter(
-        PriceData.date.in_(dates),
-        PriceData.close_price <= close_price,
-        PriceData.RSI > currentrsi
-    ).all()
+    data_last_30 = (
+        db.query(PriceData)
+        .filter(PriceData.stock_id == stock.id, PriceData.period == period)
+        .order_by(PriceData.date.desc())
+        .limit(30)
+        .all()
+    )
 
-    data_max = db.query(PriceData).filter(
-        PriceData.date.in_(dates),
-        PriceData.close_price <= close_price,
-        PriceData.RSI > currentrsi
-    ).all()
+    # Example divergence logic (customize as needed)
+    data_min = [d for d in data_last_30 if d.close_price <= close_price and d.RSI < currentrsi]
+    data_max = [d for d in data_last_30 if d.close_price >= close_price and d.RSI > currentrsi]
 
-    print("max rsi -- " , [x.RSI for x in data_max] , currentrsi)
-    return len(data_max) != 0, len(data_min) != 0
+
+    return len(data_max) != 0, len(data_min) != 0 
 
 
 

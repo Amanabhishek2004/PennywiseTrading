@@ -146,7 +146,6 @@ def MakeStrongSupportResistance(ticker, db, period):
     Prices = db.query(PriceData).filter(
     PriceData.stock_id == stock_data.id,
     PriceData.period == period,
-
     and_(
         PriceData.close_price >= current_price * 0.9,  # Lower bound
         PriceData.close_price <= current_price * 1.1   # Upper bound
@@ -231,12 +230,12 @@ def MakeStrongSupportResistance(ticker, db, period):
         db.commit()
     db.commit()    
 def CreatepatternSuppourt(Ticker, db, period):
+    print("Running")
     stock_data = db.query(Stock).filter(Stock.Ticker == Ticker).first()
     if not stock_data:
         return {"error": "Stock not found"}
 
     current_price = stock_data.CurrentPrice
-
     last_support = (
         db.query(SupportData)
         .filter(
@@ -248,10 +247,10 @@ def CreatepatternSuppourt(Ticker, db, period):
         .first()
     )
     last_time = last_support.timestamp if last_support else None
-
+    print("last_time *****************************************************************************", last_time  )
     price_query = db.query(PriceData).filter(
         PriceData.stock_id == stock_data.id,
-        PriceData.period == period,
+        PriceData.period == period , 
         and_(
             PriceData.close_price >= current_price * 0.9,
             PriceData.close_price <= current_price * 1.1
@@ -263,12 +262,11 @@ def CreatepatternSuppourt(Ticker, db, period):
 
     short_termprices = price_query.all()
 
-    if not short_termprices:
-        return {"error": "No price data available within the 10 percent range for the given period"}
+   
 
     patterns = []
-
-    for index, price in enumerate(short_termprices):
+    if short_termprices : 
+     for index, price in enumerate(short_termprices):
         data = IdentifySingleCandleStickPattern(price, period)
         if not data and index > 0:
             data = IdentifyDoubleCandleStickPatterns(
@@ -312,7 +310,7 @@ def CreatepatternSuppourt(Ticker, db, period):
         db.query(SupportData)
         .filter(
             SupportData.stock_id == stock_data.id,
-            SupportData.period == period,
+            StockTechnicals.period == period , 
             SupportData.Price < current_price,
         )
         .order_by(SupportData.Price.desc())
@@ -323,7 +321,7 @@ def CreatepatternSuppourt(Ticker, db, period):
         db.query(SupportData)
         .filter(
             SupportData.stock_id == stock_data.id,
-            SupportData.period == period,
+            StockTechnicals.period == period , 
             SupportData.Price > current_price,
         )
         .order_by(SupportData.Price.asc())
@@ -347,7 +345,17 @@ def CreatepatternSuppourt(Ticker, db, period):
             CurrentResistance=resistance.Price if resistance else None
         )
         db.add(new_technical)
-
+    print({
+        "Support": support.Price if support else None,
+        "Resistance": resistance.Price if resistance else None,
+        "Support_pattern": support.Pattern if support else None,
+        "Resistance_pattern": resistance.Pattern if resistance else None,
+        "Ticker": Ticker,
+        "Support_time": support.timestamp if support else None,
+        "Resistance_time": resistance.timestamp if resistance else None,
+        "Period": period,
+    }
+)
     db.commit() 
 
     return {
