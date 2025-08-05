@@ -22,17 +22,11 @@ router = APIRouter(prefix="/Stock", tags=["Stocks"]
                    )
 
 
-@router.get("/", response_model=List[StockSearchschema])
-def get_all_stocks(db: Session = Depends(get_db)):
-    stocks = db.query(Stock).all()
-    return stocks
-
-
 
 
 @router.get("/StockDetails", response_model=List[StockSearchschema])
 def get_all_stocks(db: Session = Depends(get_db)):
-    stocks = db.query(Stock).all()
+    stocks = db.query(Stock).filter(Stock.FinancialScore !=0 , Stock.TechnicalIntradayScore != 0 ).all()
 
     def is_valid(stock):
         try:
