@@ -96,7 +96,7 @@ def CalculateMedianpe(ticker, db):
 
     epsarray = parse_data(stock_data.earning_metrics[0].epsTrailingTwelveMonths)
     epsgrowth = stock_data.earning_metrics[0].epsForward
-    peg = stock_data.CurrentPrice / epsarray[-1]
+    peg = (stock_data.CurrentPrice / epsarray[-1])  if epsarray[-1] !=0 else 0
 
     years = len(epsarray)
     num_days = years * 240

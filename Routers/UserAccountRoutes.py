@@ -346,19 +346,50 @@ def add_to_watchlist(
     return result
 
 
+from sqlalchemy import select, and_
+
 @router.delete("/remove")
 def remove_from_watchlist(
     data: WatchlistPostSchema,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if current_user.id == data.user_id:
-        result = RemoveStockFromWatchlist(data.stock_id, data.user_id, db)
-        if not result["success"]:
-            raise HTTPException(status_code=400, detail=result["message"])
-    else:
+    if current_user.id != data.user_id:
         raise HTTPException(status_code=400, detail="Permission Denied")
-    return result
+
+    # Query the watchlist entry
+    stmt = select(watchlist_table).where(
+        and_(
+            watchlist_table.c.user_id == data.user_id,
+            watchlist_table.c.stock_id == data.stock_id
+        )
+    )
+    result = db.execute(stmt).first()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Watchlist entry not found")
+
+    # Parse the created_at string
+    try:
+        added_date = datetime.strptime(result.created_at, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Invalid date format in DB")
+
+    # Check if 3 weeks have passed
+    if (datetime.utcnow() - added_date) < timedelta(weeks=3):
+        raise HTTPException(status_code=403, detail="Stock cannot be removed before 3 weeks")
+
+    # Proceed with deletion
+    delete_stmt = watchlist_table.delete().where(
+        and_(
+            watchlist_table.c.user_id == data.user_id,
+            watchlist_table.c.stock_id == data.stock_id
+        )
+    )
+    db.execute(delete_stmt)
+    db.commit()
+
+    return {"success": True, "message": "Stock removed from watchlist"}
 
 
 @router.get("/{user_id}", response_model=UserWithAllDataSchema)
@@ -490,7 +521,7 @@ def add_multiple_subscriptions(
         template_name="invoice_email.html",
     )
 
-    # ✅ One referral email (unchanged)
+    # ✅ One referral email 
     if referred_user:
         ref_context = {
             "user_name": referred_user.name,

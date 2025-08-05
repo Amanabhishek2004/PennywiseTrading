@@ -241,6 +241,9 @@ class StockSearchschema(BaseModel):
     CompanyName: Optional[str]
     Ticker: str
     Industry: Optional[str]
+    TechnicalIntradayScore  : Optional[float] = 0.0 
+    FinancialScore : Optional[float] = 0.0
+    TechnicalDailyScore : Optional[float]
     updated: Optional[str]
     
     class Config:

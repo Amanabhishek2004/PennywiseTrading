@@ -1,20 +1,29 @@
 import yfinance as yf
 from sklearn.linear_model import LinearRegression
 import numpy as np 
-
 from datetime import datetime, timedelta
 import pandas as pd 
+from sklearn.preprocessing import StandardScaler
 
 
 
-def CreateTrendline(data) :
+def CreateTrendline(data):
+ 
     x = np.arange(len(data)).reshape(-1, 1)  # Reshape for sklearn  
     y = data.values  # Reshape for sklearn   
-    model = LinearRegression()  
-    model.fit(x, y)  # Fit the model
-    trendline = model.predict(x)  # Predict the trendline
-    m , b = model.coef_[0] , model.intercept_
-    return trendline , m , b
+
+    # Apply scaling to x and y
+    scaler_x = StandardScaler()
+    scaler_y = StandardScaler()
+    x_scaled = scaler_x.fit_transform(x)
+    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).flatten()
+
+    model = LinearRegression()
+    model.fit(x_scaled, y_scaled)  # Fit the model on scaled data
+    trendline = model.predict(x_scaled)  # Predict the trendline (scaled)
+
+    m, b = model.coef_[0], model.intercept_
+    return trendline, m, b
 
 
 import numpy as np

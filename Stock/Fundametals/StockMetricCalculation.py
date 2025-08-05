@@ -47,6 +47,8 @@ def CalculateICR(EBIT, INTEREST):
 
 import numpy as np
 
+import numpy as np
+
 def CalculateFCFF(operatingCashflow, interest, taxrate, fa, wc):
 
     def safe_to_float(value):
@@ -57,35 +59,45 @@ def CalculateFCFF(operatingCashflow, interest, taxrate, fa, wc):
             return float(value)
         except (ValueError, TypeError):
             return np.nan
-    
-    print(operatingCashflow , interest , taxrate , fa, wc )
-    # Convert inputs to NumPy arrays and replace NaNs with 0
-    fa = np.nan_to_num(np.array([safe_to_float(x) for x in fa], dtype=float), nan=0.0)
-    wc = np.nan_to_num(np.array([safe_to_float(x) for x in wc], dtype=float), nan=0.0)
-    taxrate = np.nan_to_num(np.array([safe_to_float(x) for x in taxrate], dtype=float), nan=0.0)
-    interest = np.nan_to_num(np.array([safe_to_float(x) for x in interest], dtype=float), nan=0.0)
-    operatingCashflow = np.nan_to_num(np.array([safe_to_float(x) for x in operatingCashflow], dtype=float), nan=0.0)
 
-    # Handle length mismatch using padding
-    max_length = max(len(fa), len(wc))
-    fa = np.pad(fa, (0, max_length - len(fa)), constant_values=0)
-    wc = np.pad(wc, (0, max_length - len(wc)), constant_values=0)
+    # 1) Convert all inputs to 1D NumPy arrays of floats
+    arrays = {}
+    for name, seq in (("fa", fa), ("wc", wc), ("taxrate", taxrate),
+                      ("interest", interest), ("ocf", operatingCashflow)):
+        arr = np.array([safe_to_float(x) for x in seq], dtype=float)
+        arrays[name] = np.nan_to_num(arr, nan=0.0)
 
-    # Calculate differences with padding
-    fa_diff = np.diff(fa, prepend=fa[0])
-    wc_diff = np.diff(wc, prepend=wc[0])
+    # 2) Figure out how long we need to be (the longest of fa & wc for capex,
+    #    and the longest of everything for FCFF)
+    cap_len = max(len(arrays["fa"]), len(arrays["wc"]))
+    fcff_len = max(len(arrays["ocf"]), len(arrays["interest"]),
+                   len(arrays["taxrate"]), cap_len)
 
-    # Calculate CapEx
-    capex = [float(-fa_diff[i] - wc_diff[i]) for i in range(len(fa_diff))]
+    # 3) Pad everything out
+    def pad_to(a, length):
+        return np.pad(a, (0, length - len(a)), constant_values=0.0)
 
-    # Calculate FCFF
-    fcff = [
-        float(operatingCashflow[i] + interest[i] * (1 - (taxrate[i]/100)) - capex[i])
-        for i in range(len(operatingCashflow))
+    fa   = pad_to(arrays["fa"], cap_len)
+    wc   = pad_to(arrays["wc"], cap_len)
+    ocf  = pad_to(arrays["ocf"], fcff_len)
+    irt  = pad_to(arrays["interest"], fcff_len)
+    txr  = pad_to(arrays["taxrate"], fcff_len)
+
+    # 4) Compute capex (size = cap_len)
+    fa_diff = np.diff(fa,  prepend=fa[0])
+    wc_diff = np.diff(wc,  prepend=wc[0])
+    capex   = list(-fa_diff - wc_diff)
+
+    # 5) Compute FCFF (size = fcff_len), note to cast taxrate from % to fraction
+    #    and safeguard against any floating‐point leftovers in capex
+    capex = pad_to(np.array(capex, dtype=float), fcff_len)
+    fcff  = [
+        float(ocf[i] + irt[i] * (1 - txr[i] / 100.0) - capex[i])
+        for i in range(fcff_len)
     ]
 
-    # Return the results
     return capex, fcff
+
 
 
 def CalculateROIC(ROIC):

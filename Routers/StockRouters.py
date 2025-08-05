@@ -13,11 +13,12 @@ from Stock.Technicals.SignalGenerator import *
 from Routers.AdminRouter import * 
 from Stock.Technicals.SuppourtResistance import * 
 from Routers.UserAccountRoutes import get_current_user , verify_premium_access
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
 
-
-router = APIRouter(prefix="/Stock", tags=["Stocks"] , 
-                   dependencies= [Depends(verify_premium_access)]
+router = APIRouter(prefix="/Stock", tags=["Stocks"] 
+                #    dependencies= [Depends(verify_premium_access)]
                    )
 
 
@@ -29,12 +30,27 @@ def get_all_stocks(db: Session = Depends(get_db)):
 
 
 
-@router.get("/StockDetails", response_model=List[StockSchema])
+@router.get("/StockDetails", response_model=List[StockSearchschema])
 def get_all_stocks(db: Session = Depends(get_db)):
     stocks = db.query(Stock).all()
-    return stocks
 
+    def is_valid(stock):
+        try:
+            return not any(
+                math.isnan(getattr(stock, field))
+                for field in [
+                    "TechnicalIntradayScore",
+                    "FinancialScore",
+                    "TechnicalDailyScore"
+                ]
+            )
+        except TypeError:
+            # If any field is None (not float), skip NaN check and allow it
+            return True
 
+    # Filter out stocks with any NaN float field
+    valid_stocks = list(filter(is_valid, stocks))
+    return valid_stocks
 
 
 @router.get("/{ticker}", response_model=StockSchema)
@@ -73,11 +89,7 @@ def GetPeers(request: PeersRequest,
             CalculateRSI( stock,db , period = "1m")
             CalculateRSI( stock,db , period = "1d")
 
-
-
-
         # CREATE LEVELS  
-
 
 
             MakeStrongSupportResistance(stock , db , "1m")

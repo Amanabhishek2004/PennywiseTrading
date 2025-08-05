@@ -7,7 +7,6 @@ class DateValuePair(BaseModel):
 
 
 
-
 class ExpensesSchema(BaseModel):
     id: str
     CapitalExpenditure_cagr: Optional[float]
@@ -39,8 +38,6 @@ class DaysSchema(BaseModel):
 
     class Config:
         orm_mode = True
-
-
 
 
 

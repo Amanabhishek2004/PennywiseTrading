@@ -18,13 +18,13 @@ def ConvertStringJsonTo_Array(string):
     except json.JSONDecodeError:
         print("Invalid JSON string")
         return []
-
 # Association table for many-to-many relationship between User and Stock
 watchlist_table = Table(
     "Watchlist",
     Base.metadata,
     Column("user_id", String, ForeignKey("Users.id", ondelete="CASCADE"), primary_key=True),
-    Column("stock_id", String, ForeignKey("Stocks.id", ondelete="CASCADE"), primary_key=True)
+    Column("stock_id", String, ForeignKey("Stocks.id", ondelete="CASCADE"), primary_key=True), 
+    Column("created_at", String, nullable=False, default=lambda: datetime.utcnow().strftime("%Y-%m-%d"))
 )
 
 # Stocks Table
@@ -36,6 +36,9 @@ class Stock(Base):
     marketCap = Column(Float)
     Description = Column(String)
     CompanyName = Column(String)
+    FinancialScore = Column(Float, default=0.0) 
+    TechnicalIntradayScore = Column(Float, default=0.0)
+    TechnicalDailyScore = Column(Float, default=0.0)     
     sector = Column(String)
     beta = Column(Float)
     Industry = Column(String)
@@ -314,7 +317,7 @@ class PriceData(Base):
     ticker = Column(String, index=True)
     date = Column(String, index=True)
     open_price = Column(Float)
-    period = Column(String)
+    period = Column(String, index=True)
     high_price = Column(Float)
     low_price = Column(Float)
     close_price = Column(Float)

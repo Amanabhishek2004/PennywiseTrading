@@ -8,12 +8,10 @@ class StockSchema(BaseModel):
     Ticker: str
     CurrentPrice: int
     marketCap: Optional[float]
-    Description: Optional[str]
     CompanyName: Optional[str]
     sector: Optional[str]
     beta: Optional[float]
     Industry: Optional[str]
-    updated: Optional[str]
 
     class Config:
         orm_mode = True

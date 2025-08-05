@@ -7,6 +7,7 @@ from Database.models import *
 from datetime import datetime , timedelta , timezone
 from sqlalchemy import func
 from sklearn.linear_model import LinearRegression
+from  sklearn.preprocessing import StandardScaler 
 
 def OnbalanceVolume(prices) : 
     from Database.models import  Stock , StockTechnicals , Channel , PriceData  
@@ -25,7 +26,7 @@ def OnbalanceVolume(prices) :
 
 def CreateVolumeChannel(db, Ticker: str, timeperiod: int = 30, period: str = "1d"):
     from Database.models import Stock, StockTechnicals, Channel, PriceData  
-
+    
     print("VOL", period)
 
     price_data = (
@@ -44,9 +45,9 @@ def CreateVolumeChannel(db, Ticker: str, timeperiod: int = 30, period: str = "1d
         "date": record.date,
         "Volume": record.OnbalanceVolume,
     } for record in price_data])
-
+    print(data) 
     if len(data) < timeperiod:
-        raise ValueError(f"Not enough data points to calculate channels for timeperiod: {timeperiod}")
+        raise ValueError(f"Not enough data points to calculate channels for timeperiod: {timeperiod} , {period}")
 
     # Calculate channels
     upperlineslope, upperintercept = CreateUpperChannel(data, window=timeperiod)
@@ -98,14 +99,20 @@ def CreateVolumeChannel(db, Ticker: str, timeperiod: int = 30, period: str = "1d
 
 def CreateUpperChannel(data, window):
     """
-    Create an upper channel using a rolling window.
+    Create an upper channel using a rolling window, with scaling.
     """
     highwindow = data["Volume"].rolling(window=window).max()
     x = np.arange(len(data["Volume"][-window:])).reshape(-1, 1)
     y = highwindow[-window:].dropna().values
 
+    # Apply scaling to x and y
+    scaler_x = StandardScaler()
+    scaler_y = StandardScaler()
+    x_scaled = scaler_x.fit_transform(x[:len(y)])
+    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).flatten()
+
     lr = LinearRegression()
-    lr.fit(x[:len(y)], y)  # Align x and y
+    lr.fit(x_scaled, y_scaled)  # Fit on scaled data
     intercept = lr.intercept_
     coefficient = lr.coef_[0]
 
@@ -113,14 +120,20 @@ def CreateUpperChannel(data, window):
 
 def CreateLowerChannel(data, window):
     """
-    Create a lower channel using a rolling window.
+    Create a lower channel using a rolling window, with scaling.
     """
     lowwindow = data["Volume"].rolling(window=window).min()
     x = np.arange(len(data["Volume"][-window:])).reshape(-1, 1)
     y = lowwindow[-window:].dropna().values
 
+    # Apply scaling to x and y
+    scaler_x = StandardScaler()
+    scaler_y = StandardScaler()
+    x_scaled = scaler_x.fit_transform(x[:len(y)])
+    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).flatten()
+
     lr = LinearRegression()
-    lr.fit(x[:len(y)], y)  # Align x and y
+    lr.fit(x_scaled, y_scaled)  # Fit on scaled data
     intercept = lr.intercept_
     coefficient = lr.coef_[0]
 

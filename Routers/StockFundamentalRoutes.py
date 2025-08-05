@@ -268,3 +268,38 @@ def get_days(
 
     _track_read_and_data_usage(db, current_user.id, response)
     return response
+
+from Stock.Fundametals.StockScreener import * 
+import math
+
+def replace_nan_with_none(obj):
+    if isinstance(obj, dict):
+        return {k: replace_nan_with_none(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [replace_nan_with_none(v) for v in obj]
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    else:
+        return obj
+
+@router.get("/screening-scores/all")
+def get_all_screening_scores(
+    db: Session = Depends(get_db),
+):
+    stocks = db.query(Stock).all()
+    results = []
+    for stock in stocks:
+        financial_score = calculate_financial_score(stock)
+        technical_scores = calculate_technical_score_periodwise(stock)
+        results.append({
+            "ticker": stock.Ticker,
+            "financial_score": financial_score,
+            "technical_scores": technical_scores
+        })
+        stock.FinancialScore = financial_score
+        stock.TechnicalIntradayScore = technical_scores.get("1m", 0.0) 
+        stock.TechnicalDailyScore = technical_scores.get("1d", 0.0)
+        db.commit()
+    return replace_nan_with_none(results)
