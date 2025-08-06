@@ -11,14 +11,15 @@ from Stock.Technicals.rsiStrategy import CalculateRSI
 from Stock.Technicals.StockChannels import *    
 from Stock.Technicals.SignalGenerator import * 
 from Routers.AdminRouter import * 
+from Database.models import *
 from Stock.Technicals.SuppourtResistance import * 
 from Routers.UserAccountRoutes import get_current_user , verify_premium_access
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 
 
-router = APIRouter(prefix="/Stock", tags=["Stocks"] 
-                #    dependencies= [Depends(verify_premium_access)]
+router = APIRouter(prefix="/Stock", tags=["Stocks"]  , 
+                   dependencies= [Depends(verify_premium_access)]
                    )
 
 
@@ -106,6 +107,9 @@ def GetPeers(request: PeersRequest,
 
 
 # Assuming StockSchema is defined like this:
+
+
+
 
 
 

@@ -123,6 +123,16 @@ def GetSupportResistance(
     return {"data" : DATA}
 
 
+@router.get("/allSuppourts/{ticker}")
+def get_all_supports(ticker: str, db: Session = Depends(get_db) , period: str = "1d"    ):
+    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
+    supports = db.query(SupportData).filter(SupportData.stock_id == stock.id , SupportData.period == period ).all()
+    
+    return supports
+
+
 @router.post("/SuppourtResistance")
 def CreateSuppourtResistances(
     ticker: str,

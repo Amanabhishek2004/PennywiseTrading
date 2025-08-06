@@ -312,8 +312,8 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db), current_use
     print(start_str , end_str)
     
     data_daily = stock_data.history(period="10y", interval="1d")
-    data_min = stock_data.history(start=start_str, end=end_str, interval="5m")
-
+    data_min = stock_data.history(period = "8d", interval="5m")
+    print(data_min)
     def fetch_last_14(ticker, period):
         rows = db.query(PriceData).filter(
             PriceData.ticker == ticker,
@@ -416,45 +416,29 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db), current_use
                     volume=get_scalar(row["Volume"], ticker),
                     period="1m",
                 ))
+    db.commit()
 
     end_dt_with_tz = end_dt.replace(tzinfo=timezone(timedelta(hours=5, minutes=30)))
     stock.updated = end_dt_with_tz.isoformat()
+    
+    last_close_row = db.query(PriceData.close_price).filter(
+        PriceData.ticker == ticker,
+        PriceData.period == "1d"
+    ).order_by(PriceData.date.desc()).offset(1).limit(1).first()
 
-    latest_price = None
-    percent_change = None
-
-    if not data_daily.empty:
-        # Sort the data just in case
-        data_daily = data_daily.sort_index()
-
-        # Get last and previous day closes
-        last_date = data_daily.index.max()
-        previous_dates = data_daily.index[data_daily.index < last_date]
-
-        if not previous_dates.empty:
-            prev_date = previous_dates.max()
-            last_close = data_daily.loc[last_date, "Close"]
-            prev_close = data_daily.loc[prev_date, "Close"]
-
-            if hasattr(last_close, "item"):
-                last_close = float(last_close.item())
-            else:
-                last_close = float(last_close)
-
-            if hasattr(prev_close, "item"):
-                prev_close = float(prev_close.item())
-            else:
-                prev_close = float(prev_close)
-
-            latest_price = last_close
-            percent_change = ((last_close - prev_close) / prev_close) * 100
-
-            stock.CurrentPrice = latest_price
-    db.commit()
+    last_close = last_close_row[0] if last_close_row else None
+    print(f"Last close for {ticker}: {last_close}")
+    current_price = db.query(PriceData).filter(
+        PriceData.ticker == ticker,
+        PriceData.period == "1m"
+    ).order_by(PriceData.date.desc()).first()
+    percent_change =  100*(current_price.close_price - last_close )/ last_close if last_close else None
+     
+    
 
     return {
         "detail": f"{ticker} updated successfully.",
-        "latest_price": latest_price,
+        "latest_price": current_price.close_price,
         "percent_change": round(percent_change, 2) if percent_change is not None else None
     }
 
