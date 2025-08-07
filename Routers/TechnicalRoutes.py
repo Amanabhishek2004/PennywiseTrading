@@ -9,11 +9,12 @@ from typing import List
 from Database.Schemas.StockSchema import *
 import math
 from Stock.Technicals.rsiStrategy import *
-from Stock.Technicals.SuppourtResistance import CreatepatternSuppourt , MakeStrongSupportResistance
+from Stock.Technicals.SuppourtResistance import CreatepatternSuppourt , MakeStrongSupportResistance , IdentifyDoubleCandleStickPatterns , IdentifySingleCandleStickPattern
 from Database.Schemas.PriceSchema import *
 from Stock.Technicals.SignalGenerator import *
 from Stock.Technicals.DynamicSuppourtResistance import *
 from pydantic import BaseModel
+
 from typing import Optional, Dict, Any, List
 from Routers.UserAccountRoutes import *
 
