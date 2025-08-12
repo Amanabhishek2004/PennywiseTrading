@@ -1,9 +1,12 @@
 def CalculateSwingPoints(ticker, db, period):
     import pandas as pd
     import pytz
+    from sqlalchemy import types as satypes
     from Database.models import PriceData, SwingPoints, Stock
 
-    # Fetch price data
+    # -------------------------
+    #  Fetch price data
+    # -------------------------
     records = (
         db.query(PriceData)
         .filter(PriceData.ticker == ticker, PriceData.period == period)
@@ -13,13 +16,11 @@ def CalculateSwingPoints(ticker, db, period):
     if not records:
         return None, None
 
-    # Get stock_id
     stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
     stock_id = stock.id if stock else None
     if not stock_id:
         return None, None
 
-    # Convert to DataFrame
     data = pd.DataFrame([{
         "Open": r.open_price,
         "High": r.high_price,
@@ -32,12 +33,13 @@ def CalculateSwingPoints(ticker, db, period):
     data.set_index("Date", inplace=True)
     data = data.dropna(subset=['Open', 'High', 'Low', 'Close'])
 
-    # Swing point logic
+    # -------------------------
+    #  Swing / Pattern logic
+    # -------------------------
     window = 10
     is_min = (data['Low'] == data['Low'].rolling(window * 2 + 1, center=True).min())
     is_max = (data['High'] == data['High'].rolling(window * 2 + 1, center=True).max())
 
-    # Candlestick pattern detection
     def detect_candle_pattern(row, prev_row):
         open_, close, high, low = row['Open'], row['Close'], row['High'], row['Low']
         body = abs(close - open_)
@@ -91,91 +93,108 @@ def CalculateSwingPoints(ticker, db, period):
         pattern_type.append(detect_candle_pattern(data.iloc[i], data.iloc[i - 1]))
     data['Pattern'] = pattern_type
 
-    # Swing lows/highs
     swing_lows_all = data[is_min & (data['RSI20'] < 35)]
     swing_highs_all = data[is_max & (data['RSI20'] > 70)]
-
-    # Filter swings with patterns
     swing_lows_pattern = swing_lows_all[swing_lows_all['Pattern'] == 'bullish']
     swing_highs_pattern = swing_highs_all[swing_highs_all['Pattern'] == 'bearish']
 
-    # Bullish divergence
+    # -------------------------
+    #  Divergence detection (duplicate-safe)
+    # -------------------------
     all_bullish_divergence_idx = []
-    for i in range(len(swing_lows_all)):
-        curr_idx = swing_lows_all.index[i]
-        curr_pos = data.index.get_loc(curr_idx)
-        for j in range(1, window + 1):
-            prev_pos = curr_pos - j
-            if prev_pos < 0:
-                break
-            prev_idx = data.index[prev_pos]
-            if swing_lows_all.loc[curr_idx, 'Close'] < data.loc[prev_idx, 'Close'] and \
-               swing_lows_all.loc[curr_idx, 'RSI20'] > data.loc[prev_idx, 'RSI20']:
-                all_bullish_divergence_idx.append(curr_idx)
-                break
+    for curr_idx in swing_lows_all.index.unique():
+        curr_positions = data.index.get_indexer_for([curr_idx])
+        for curr_pos in curr_positions:
+            curr_close = data.iloc[curr_pos]['Close']
+            curr_rsi = data.iloc[curr_pos]['RSI20']
+            for j in range(1, window + 1):
+                prev_pos = curr_pos - j
+                if prev_pos < 0:
+                    break
+                prev_close = data.iloc[prev_pos]['Close']
+                prev_rsi = data.iloc[prev_pos]['RSI20']
+                if curr_close < prev_close and curr_rsi > prev_rsi:
+                    all_bullish_divergence_idx.append(data.index[curr_pos])
+                    break
 
-    # Bearish divergence
     all_bearish_divergence_idx = []
-    for i in range(len(swing_highs_all)):
-        curr_idx = swing_highs_all.index[i]
-        curr_pos = data.index.get_loc(curr_idx)
-        for j in range(1, window + 1):
-            prev_pos = curr_pos - j
-            if prev_pos < 0:
-                break
-            prev_idx = data.index[prev_pos]
-            if swing_highs_all.loc[curr_idx, 'Close'] > data.loc[prev_idx, 'Close'] and \
-               swing_highs_all.loc[curr_idx, 'RSI20'] < data.loc[prev_idx, 'RSI20']:
-                all_bearish_divergence_idx.append(curr_idx)
-                break
+    for curr_idx in swing_highs_all.index.unique():
+        curr_positions = data.index.get_indexer_for([curr_idx])
+        for curr_pos in curr_positions:
+            curr_close = data.iloc[curr_pos]['Close']
+            curr_rsi = data.iloc[curr_pos]['RSI20']
+            for j in range(1, window + 1):
+                prev_pos = curr_pos - j
+                if prev_pos < 0:
+                    break
+                prev_close = data.iloc[prev_pos]['Close']
+                prev_rsi = data.iloc[prev_pos]['RSI20']
+                if curr_close > prev_close and curr_rsi < prev_rsi:
+                    all_bearish_divergence_idx.append(data.index[curr_pos])
+                    break
 
     # -------------------------
-    #   SAVE TO DATABASE
+    #  DB type-aware normalization helpers
     # -------------------------
+    from sqlalchemy import inspect
+    col_type = SwingPoints.__table__.c.time.type  # sqlalchemy column type object
 
-    # Convert all times to UTC
-    def to_utc(ts):
+    def normalize_for_db(ts):
+        """
+        Convert pandas.Timestamp (or datetime-like) into the correct python object
+        to be compared/inserted into the SwingPoints.time column,
+        depending on the column type (Time or DateTime).
+        """
         ts = pd.Timestamp(ts)
-        if ts.tzinfo is None:
-            ts = ts.tz_localize('UTC')
-        else:
-            ts = ts.tz_convert('UTC')
-        return ts
+        # If column is time-only -> use datetime.time (loses date)
+        if isinstance(col_type, satypes.Time):
+            return ts.time()
+        # If column is DateTime
+        if isinstance(col_type, satypes.DateTime):
+            if getattr(col_type, "timezone", False):
+                # DB stores timezone-aware datetimes: ensure tz-aware UTC
+                if ts.tzinfo is None:
+                    ts = ts.tz_localize('UTC')
+                else:
+                    ts = ts.tz_convert('UTC')
+                return ts.to_pydatetime()
+            else:
+                # DB stores naive datetime: convert to UTC naive
+                if ts.tzinfo is not None:
+                    ts = ts.tz_convert('UTC').tz_localize(None)
+                return ts.to_pydatetime()
+        # fallback: return raw python datetime
+        return ts.to_pydatetime()
 
-    # Get existing times in DB for this stock
-    existing_times = set(
-        r[0] for r in db.query(SwingPoints.time)
-        .filter(SwingPoints.stock_id == stock_id)
-        .all()
-    )
+    # -------------------------
+    #  Batch existing times & prepare inserts
+    # -------------------------
+    existing_raw = db.query(SwingPoints.time).filter(SwingPoints.stock_id == stock_id).all()
+    existing_times_raw = [r[0] for r in existing_raw]
+    existing_norm = set(normalize_for_db(t) for t in existing_times_raw)
 
-    # Prepare inserts
     new_entries = []
+
+    def add_if_new(idx, pattern, tag):
+        n = normalize_for_db(idx)
+        if n not in existing_norm:
+            # ensure stored value passed into model is the same normalized object
+            new_entries.append(SwingPoints(pattern=pattern, time=n, period=period, tag=tag, stock_id=stock_id))
+            existing_norm.add(n)  # avoid duplicates within this run
+
     for idx in swing_lows_all.index:
-        ts = to_utc(idx)
-        if ts not in existing_times:
-            new_entries.append(SwingPoints(pattern="Weak", time=ts, period=period, tag="SwingLow", stock_id=stock_id))
-
+        add_if_new(idx, "Weak", "SwingLow")
     for idx in swing_highs_all.index:
-        ts = to_utc(idx)
-        if ts not in existing_times:
-            new_entries.append(SwingPoints(pattern="Weak", time=ts, period=period, tag="SwingHigh", stock_id=stock_id))
-
+        add_if_new(idx, "Weak", "SwingHigh")
     for idx in all_bullish_divergence_idx:
-        ts = to_utc(idx)
-        if ts not in existing_times:
-            new_entries.append(SwingPoints(pattern="BullishDivergence", time=ts, period=period, tag="SwingLow", stock_id=stock_id))
-
+        add_if_new(idx, "BullishDivergence", "SwingLow")
     for idx in all_bearish_divergence_idx:
-        ts = to_utc(idx)
-        if ts not in existing_times:
-            new_entries.append(SwingPoints(pattern="BearishDivergence", time=ts, period=period, tag="SwingHigh", stock_id=stock_id))
+        add_if_new(idx, "BearishDivergence", "SwingHigh")
 
     if new_entries:
         db.add_all(new_entries)
         db.commit()
 
-    # Return results
     swingpoints = {
         "BullishDivergingSwing": all_bullish_divergence_idx,
         "BearishDiverganceSwing": all_bearish_divergence_idx,
