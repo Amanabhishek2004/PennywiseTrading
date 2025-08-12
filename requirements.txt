@@ -18,3 +18,4 @@ pydantic
 requests
 python-dotenv
 jinja2
+supabase
