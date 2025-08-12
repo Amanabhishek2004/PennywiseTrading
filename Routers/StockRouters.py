@@ -73,7 +73,7 @@ def GetPeers(request: PeersRequest,
 
         data = db.query(Stock).filter(Stock.Ticker == stock).first()
         if len(data.pricedata) == 0:
-            update_single_ticker(stock, db)
+            update_single_ticker_supabase(stock)
         if len(data.technicals) == 0:
             print("Channels done")
             CreateChannel(db , stock , period="1m")
@@ -89,8 +89,6 @@ def GetPeers(request: PeersRequest,
 
             MakeStrongSupportResistance(stock , db , "1m")
             MakeStrongSupportResistance(stock , db , "1d")
-
-
 
             #  levels due to patterns  
             CreateNewLevels(stock  , db )

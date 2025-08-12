@@ -21,7 +21,7 @@ from Stock.Fundametals.StockForwardRatios import  *
 
 
 
-router = APIRouter(prefix="/Admin", tags=["Admin"] , dependencies= [Depends(verify_premium_access)])
+router = APIRouter(prefix="/Admin", tags=["Admin"]   , dependencies= [Depends(verify_premium_access)])
 
 
 # Assume get_db, Base, engine, and your models (Stock, EarningMetric, etc.) are already defined elsewhere
@@ -272,69 +272,101 @@ async def upload_data(file: UploadFile, db: Session = Depends(get_db)):
 
 
 
+from supabase import create_client, Client
+from datetime import datetime, timezone, timedelta
+import pandas as pd
+import yfinance as yf
+import vectorbt as vbt
+from uuid import uuid4
+
+# --- Supabase Client ---
+SUPABASE_URL = "https://uitfyfywxzaczubnecft.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpdGZ5Znl3eHphY3p1Ym5lY2Z0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTQ1MjMzNiwiZXhwIjoyMDY3MDI4MzM2fQ.yjZ6UsGzO4F6VyU0q_HSUVrekFr9XGHazN9cd61nOZ8"
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# --- Helper Functions ---
+def fetch_last_14_supabase(ticker, period):
+    """Fetch last 14 records for given ticker and period from Supabase."""
+    rows = supabase.table("PriceData") \
+        .select("open_price, high_price, low_price, close_price, volume, date") \
+        .eq("ticker", ticker) \
+        .eq("period", period) \
+        .order("date", desc=True) \
+        .limit(14) \
+        .execute()
+    # print(rows.data)
+    if not rows.data:
+        return pd.DataFrame()
+      
+    df = pd.DataFrame(rows.data)
+    df['date'] = pd.to_datetime(df['date'])
+    df.rename( { 
+        "open_price": "Open",
+        "high_price": "High",
+        "low_price": "Low",
+        "close_price": "Close",
+        "volume": "Volume"
+    }, axis=1, inplace=True)            
+    
+    df.set_index('date', inplace=True)
+    
+    print(df)
+    return df.sort_index()
+
+def format_with_colon(dt):
+    """Ensure datetime is in ISO format with colon in offset."""
+    return dt.isoformat()
+
+def get_scalar(value):
+    """Convert NumPy or Pandas scalar to Python type."""
+    try:
+        return value.item()
+    except:
+        return float(value)
+
+def to_float(val):
+    return float(get_scalar(val))
+
+def to_int(val):
+    return int(get_scalar(val))
+
+# --- Main Function ---
 @router.patch("/update_single/{ticker}")
-def update_single_ticker(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    import vectorbt as vbt
-    import pandas as pd
-    from datetime import datetime, timezone, timedelta
-    import yfinance as yf
-    from uuid import uuid4
+def update_single_ticker_supabase(ticker: str):
+    # Fetch Stock
+    stock_data = supabase.table("Stocks").select("*").eq("Ticker", ticker).single().execute()
 
-    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-    if not stock:
+    if not stock_data.data:
         return {"detail": f"Ticker {ticker} not found."}
+    stock = stock_data.data
 
-    stock_data = yf.Ticker(f"{ticker}.NS")
+    # Check last updated time
     updated_time = None
-    if stock.updated:
+    if stock.get("updated"):
         try:
-            updated_time = datetime.fromisoformat(stock.updated)
+            updated_time = datetime.fromisoformat(stock["updated"])
             if updated_time.tzinfo is None:
-                # Make it timezone-aware if it's naive
                 updated_time = updated_time.replace(tzinfo=timezone.utc)
         except Exception:
             updated_time = None
-    else:
-        updated_time = None
 
     if updated_time:
         start_dt = updated_time
     else:
-        start_dt = datetime.now(timezone.utc) - timedelta(days=8)
+        start_dt = datetime.now(timezone.utc) - timedelta(days=9)
 
-    raw_end_dt = start_dt + timedelta(days=8)
+    raw_end_dt = start_dt + timedelta(days=9)
     now = datetime.now(timezone.utc)
     end_dt = min(raw_end_dt, now)
-
-    start_str = start_dt.strftime('%Y-%m-%d')
-    end_str = end_dt.strftime('%Y-%m-%d') 
-
-    print(start_str , end_str)
+    print(f"Updating {ticker} from {start_dt.date()} to {end_dt.date()}")
+    # Fetch new data from Yahoo Finance
+    stock_yf = yf.Ticker(f"{ticker}.NS")
+    data_daily = stock_yf.history(period="10y", interval="1d")
+    data_min = stock_yf.history(start = start_dt.date() , end = raw_end_dt.date(), interval="5m")
     
-    data_daily = stock_data.history(period="10y", interval="1d")
-    data_min = stock_data.history(period = "8d", interval="5m")
-    print(data_min)
-    def fetch_last_14(ticker, period):
-        rows = db.query(PriceData).filter(
-            PriceData.ticker == ticker,
-            PriceData.period == period
-        ).order_by(PriceData.date.desc()).limit(14).all()
-        if not rows:
-            return pd.DataFrame()
-        df = pd.DataFrame([{
-            'Open': r.open_price,
-            'High': r.high_price,
-            'Low': r.low_price,
-            'Close': r.close_price,
-            'Volume': r.volume,
-            'date': r.date
-        } for r in rows])
-        df['date'] = pd.to_datetime(df['date'])
-        df.set_index('date', inplace=True)
-        return df.sort_index()
-
-    prev_daily = fetch_last_14(ticker, "1d")
-    prev_min = fetch_last_14(ticker, "1m")
+    # Merge with last 14 from DB
+    prev_daily = fetch_last_14_supabase(ticker, "1d")
+    prev_min = fetch_last_14_supabase(ticker, "1m")
 
     if not prev_daily.empty:
         data_daily = pd.concat([prev_daily, data_daily])
@@ -343,6 +375,7 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db), current_use
         data_min = pd.concat([prev_min, data_min])
         data_min = data_min[~data_min.index.duplicated(keep='last')]
 
+    # Add RSI and OBV
     if not data_daily.empty:
         data_daily['RSI'] = vbt.RSI.run(data_daily['Close'], window=14).rsi
         data_daily['OBV'] = vbt.OBV.run(data_daily['Close'], data_daily['Volume']).obv
@@ -351,96 +384,289 @@ def update_single_ticker(ticker: str, db: Session = Depends(get_db), current_use
         data_min['RSI'] = vbt.RSI.run(data_min['Close'], window=14).rsi
         data_min['OBV'] = vbt.OBV.run(data_min['Close'], data_min['Volume']).obv
         data_min = data_min.dropna()
-
+    print(data_min)
+    # Filter new rows only
     if updated_time:
         updated_time = pd.Timestamp(updated_time)
         if updated_time.tzinfo is not None:
-            updated_time = updated_time.tz_convert(None) if hasattr(updated_time, "tz_convert") else updated_time.tz_localize(None)
+            updated_time = updated_time.tz_convert(None)
+
         for df in [data_daily, data_min]:
             if not isinstance(df.index, pd.DatetimeIndex):
                 df.index = pd.to_datetime(df.index)
             if df.index.tz is not None:
                 df.index = df.index.tz_localize(None)
+
         data_daily = data_daily[data_daily.index > updated_time]
         data_min = data_min[data_min.index > updated_time]
 
-    if not data_daily.empty and not data_min.empty:
+    # Insert daily data
+    if not data_daily.empty:
         for date, row in data_daily.iterrows():
-            date_str = format_with_colon(date)
-            existing_record = (
-                db.query(PriceData)
-                .filter(
-                    PriceData.ticker == ticker,
-                    PriceData.date == date_str,
-                    PriceData.period == "1d",
-                ).first()
-            )
-            if not existing_record:
-                db.add(PriceData(
-                    id=str(uuid4()),
-                    stock_id=stock.id,
-                    ticker=ticker,
-                    date=date_str,
-                    open_price=get_scalar(row["Open"], ticker),
-                    high_price=get_scalar(row["High"], ticker),
-                    low_price=get_scalar(row["Low"], ticker),
-                    close_price=get_scalar(row["Close"], ticker),
-                    RSI=get_scalar(row["RSI"], ticker),
-                    OnbalanceVolume=get_scalar(row["OBV"], ticker),
-                    volume=get_scalar(row["Volume"], ticker),
-                    period="1d",
-                ))
+            date_ts = date if date.tzinfo else date.tz_localize("UTC")
+            exists = supabase.table("PriceData").select("id") \
+                .eq("ticker", ticker).eq("date", date_ts.isoformat()).eq("period", "1d").execute()
+            if not exists.data:
+                supabase.table("PriceData").insert({
+                    "id": str(uuid4()),
+                    "stock_id": stock["id"],
+                    "ticker": ticker,
+                    "date": date_ts.isoformat(),
+                    "open_price": float(row["Open"]),
+                    "high_price": float(row["High"]),
+                    "low_price": float(row["Low"]),
+                    "close_price": float(row["Close"]),
+                    "RSI": float(row["RSI"]),
+                    "OnbalanceVolume": float(row["OBV"]),
+                    "volume": int(row["Volume"]),
+                    "period": "1d",
+                }).execute()
 
+    # Insert minute data
+    if not data_min.empty:
         for timestamp, row in data_min.iterrows():
-            timestamp_str = format_with_colon(timestamp)
-            existing_record = (
-                db.query(PriceData)
-                .filter(
-                    PriceData.ticker == ticker,
-                    PriceData.date == timestamp_str,
-                    PriceData.period == "1m",
-                ).first()
-            )
-            if not existing_record:
-                db.add(PriceData(
-                    id=str(uuid4()),
-                    stock_id=stock.id,
-                    ticker=ticker,
-                    date=timestamp_str,
-                    open_price=get_scalar(row["Open"], ticker),
-                    high_price=get_scalar(row["High"], ticker),
-                    low_price=get_scalar(row["Low"], ticker),
-                    close_price=get_scalar(row["Close"], ticker),
-                    RSI=get_scalar(row["RSI"], ticker),
-                    OnbalanceVolume=get_scalar(row["OBV"], ticker),
-                    volume=get_scalar(row["Volume"], ticker),
-                    period="1m",
-                ))
-    db.commit()
+            ts = timestamp if timestamp.tzinfo else timestamp.tz_localize("UTC")
+            exists = supabase.table("PriceData").select("id") \
+                .eq("ticker", ticker).eq("date", ts.isoformat()).eq("period", "1m").execute()
+            if not exists.data:
+                supabase.table("PriceData").insert({
+                    "id": str(uuid4()),
+                    "stock_id": stock["id"],
+                    "ticker": ticker,
+                    "date": ts.isoformat(),
+                    "open_price": float(row["Open"]),
+                    "high_price": float(row["High"]),
+                    "low_price": float(row["Low"]),
+                    "close_price": float(row["Close"]),
+                    "RSI": float(row["RSI"]),
+                    "OnbalanceVolume": float(row["OBV"]),
+                    "volume": int(row["Volume"]),
+                    "period": "1m",
+                }).execute()
 
-    end_dt_with_tz = end_dt.replace(tzinfo=timezone(timedelta(hours=5, minutes=30)))
-    stock.updated = end_dt_with_tz.isoformat()
-    
-    last_close_row = db.query(PriceData.close_price).filter(
-        PriceData.ticker == ticker,
-        PriceData.period == "1d"
-    ).order_by(PriceData.date.desc()).offset(1).limit(1).first()
+    # Update stock.updated
+    end_dt_with_tz = end_dt.astimezone(timezone(timedelta(hours=5, minutes=30)))
+    supabase.table("Stocks").update({"updated": end_dt_with_tz.isoformat()}) \
+        .eq("id", stock["id"]).execute()
 
-    last_close = last_close_row[0] if last_close_row else None
-    print(f"Last close for {ticker}: {last_close}")
-    current_price = db.query(PriceData).filter(
-        PriceData.ticker == ticker,
-        PriceData.period == "1m"
-    ).order_by(PriceData.date.desc()).first()
-    percent_change =  100*(current_price.close_price - last_close )/ last_close if last_close else None
-     
-    
+    # Calculate percent change
+    last_close_row = supabase.table("PriceData") \
+        .select("close_price") \
+        .eq("ticker", ticker) \
+        .eq("period", "1d") \
+        .order("date", desc=True) \
+        .range(1, 1) \
+        .execute()
+    last_close = last_close_row.data[0]["close_price"] if last_close_row.data else None
+
+    current_price_row = supabase.table("PriceData") \
+        .select("close_price") \
+        .eq("ticker", ticker) \
+        .eq("period", "1m") \
+        .order("date", desc=True) \
+        .limit(1) \
+        .execute()
+    current_price = current_price_row.data[0]["close_price"] if current_price_row.data else None
+
+    percent_change = 100 * (current_price - last_close) / last_close if last_close else None
 
     return {
         "detail": f"{ticker} updated successfully.",
-        "latest_price": current_price.close_price,
+        "latest_price": current_price,
         "percent_change": round(percent_change, 2) if percent_change is not None else None
     }
+
+
+
+
+# def update_single_ticker(ticker: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+#     import vectorbt as vbt
+#     import pandas as pd
+#     from datetime import datetime, timezone, timedelta
+#     import yfinance as yf
+#     from uuid import uuid4
+
+#     stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
+#     if not stock:
+#         return {"detail": f"Ticker {ticker} not found."}
+
+#     stock_data = yf.Ticker(f"{ticker}.NS")
+#     updated_time = None
+#     if stock.updated:
+#         try:
+#             updated_time = datetime.fromisoformat(stock.updated)
+#             if updated_time.tzinfo is None:
+#                 # Make it timezone-aware if it's naive
+#                 updated_time = updated_time.replace(tzinfo=timezone.utc)
+#         except Exception:
+#             updated_time = None
+#     else:
+#         updated_time = None
+
+#     if updated_time:
+#         start_dt = updated_time
+#     else:
+#         start_dt = datetime.now(timezone.utc) - timedelta(days=8)
+
+#     raw_end_dt = start_dt + timedelta(days=8)
+#     now = datetime.now(timezone.utc)
+#     end_dt = min(raw_end_dt, now)
+
+#     start_str = start_dt.strftime('%Y-%m-%d')
+#     end_str = end_dt.strftime('%Y-%m-%d') 
+
+#     print(start_str , end_str)
+    
+#     data_daily = stock_data.history(period="10y", interval="1d")
+#     data_min = stock_data.history(period = "8d", interval="5m")
+#     print(data_min)
+#     def fetch_last_14(ticker, period):
+#         rows = db.query(PriceData).filter(
+#             PriceData.ticker == ticker,
+#             PriceData.period == period
+#         ).order_by(PriceData.date.desc()).limit(14).all()
+#         if not rows:
+#             return pd.DataFrame()
+#         df = pd.DataFrame([{
+#             'Open': r.open_price,
+#             'High': r.high_price,
+#             'Low': r.low_price,
+#             'Close': r.close_price,
+#             'Volume': r.volume,
+#             'date': r.date
+#         } for r in rows])
+#         df['date'] = pd.to_datetime(df['date'])
+#         df.set_index('date', inplace=True)
+#         return df.sort_index()
+
+#     prev_daily = fetch_last_14(ticker, "1d")
+#     prev_min = fetch_last_14(ticker, "1m")
+
+#     if not prev_daily.empty:
+#         data_daily = pd.concat([prev_daily, data_daily])
+#         data_daily = data_daily[~data_daily.index.duplicated(keep='last')]
+#     if not prev_min.empty:
+#         data_min = pd.concat([prev_min, data_min])
+#         data_min = data_min[~data_min.index.duplicated(keep='last')]
+
+#     if not data_daily.empty:
+#         data_daily['RSI'] = vbt.RSI.run(data_daily['Close'], window=14).rsi
+#         data_daily['OBV'] = vbt.OBV.run(data_daily['Close'], data_daily['Volume']).obv
+#         data_daily = data_daily.dropna()
+#     if not data_min.empty:
+#         data_min['RSI'] = vbt.RSI.run(data_min['Close'], window=14).rsi
+#         data_min['OBV'] = vbt.OBV.run(data_min['Close'], data_min['Volume']).obv
+#         data_min = data_min.dropna()
+
+#     if updated_time:
+#         updated_time = pd.Timestamp(updated_time)
+#         if updated_time.tzinfo is not None:
+#             updated_time = updated_time.tz_convert(None) if hasattr(updated_time, "tz_convert") else updated_time.tz_localize(None)
+#         for df in [data_daily, data_min]:
+#             if not isinstance(df.index, pd.DatetimeIndex):
+#                 df.index = pd.to_datetime(df.index)
+#             if df.index.tz is not None:
+#                 df.index = df.index.tz_localize(None)
+#         data_daily = data_daily[data_daily.index > updated_time]
+#         data_min = data_min[data_min.index > updated_time]
+
+#     if not data_daily.empty and not data_min.empty:
+#         for date, row in data_daily.iterrows():
+#             date_str = format_with_colon(date)
+#             existing_record = (
+#                 db.query(PriceData)
+#                 .filter(
+#                     PriceData.ticker == ticker,
+#                     PriceData.date == date_str,
+#                     PriceData.period == "1d",
+#                 ).first()
+#             )
+#             if not existing_record:
+#                 db.add(PriceData(
+#                     id=str(uuid4()),
+#                     stock_id=stock.id,
+#                     ticker=ticker,
+#                     date=date_str,
+#                     open_price=get_scalar(row["Open"], ticker),
+#                     high_price=get_scalar(row["High"], ticker),
+#                     low_price=get_scalar(row["Low"], ticker),
+#                     close_price=get_scalar(row["Close"], ticker),
+#                     RSI=get_scalar(row["RSI"], ticker),
+#                     OnbalanceVolume=get_scalar(row["OBV"], ticker),
+#                     volume=get_scalar(row["Volume"], ticker),
+#                     period="1d",
+#                 ))
+
+#         for timestamp, row in data_min.iterrows():
+#             timestamp_str = format_with_colon(timestamp)
+#             existing_record = (
+#                 db.query(PriceData)
+#                 .filter(
+#                     PriceData.ticker == ticker,
+#                     PriceData.date == timestamp_str,
+#                     PriceData.period == "1m",
+#                 ).first()
+#             )
+#             if not existing_record:
+#                 db.add(PriceData(
+#                     id=str(uuid4()),
+#                     stock_id=stock.id,
+#                     ticker=ticker,
+#                     date=timestamp_str,
+#                     open_price=get_scalar(row["Open"], ticker),
+#                     high_price=get_scalar(row["High"], ticker),
+#                     low_price=get_scalar(row["Low"], ticker),
+#                     close_price=get_scalar(row["Close"], ticker),
+#                     RSI=get_scalar(row["RSI"], ticker),
+#                     OnbalanceVolume=get_scalar(row["OBV"], ticker),
+#                     volume=get_scalar(row["Volume"], ticker),
+#                     period="1m",
+#                 ))
+#     db.commit()
+
+#     end_dt_with_tz = end_dt.replace(tzinfo=timezone(timedelta(hours=5, minutes=30)))
+#     stock.updated = end_dt_with_tz.isoformat()
+    
+#     last_close_row = db.query(PriceData.close_price).filter(
+#         PriceData.ticker == ticker,
+#         PriceData.period == "1d"
+#     ).order_by(PriceData.date.desc()).offset(1).limit(1).first()
+
+#     last_close = last_close_row[0] if last_close_row else None
+#     print(f"Last close for {ticker}: {last_close}")
+#     current_price = db.query(PriceData).filter(
+#         PriceData.ticker == ticker,
+#         PriceData.period == "1m"
+#     ).order_by(PriceData.date.desc()).first()
+#     percent_change =  100*(current_price.close_price - last_close )/ last_close if last_close else None
+     
+    
+
+#     return {
+#         "detail": f"{ticker} updated successfully.",
+#         "latest_price": current_price.close_price,
+#         "percent_change": round(percent_change, 2) if percent_change is not None else None
+#     }
+
+from sqlalchemy.sql import exists
+
+@router.patch("/UpdatedDateChanger") 
+def update_date_changer(db: Session = Depends(get_db)):
+
+    stocks = (
+    db.query(Stock)
+    .filter(
+        exists().where(PriceData.stock_id == Stock.id)
+    )
+    .all()
+)
+    for stock in stocks:
+            
+            records = db.query(PriceData).filter(PriceData.period == "1m", PriceData.stock_id == stock.id).order_by(PriceData.date.desc()).first()
+            stock.updated = records.date if records else None 
+            print(f"Updated {stock.Ticker} with date {stock.updated}") 
+    db.commit()
+    return {"detail": "Date changer updated successfully."}          
 
 
 
@@ -450,25 +676,25 @@ def UpdateAllTechnicaldata(ticker ,db: Session = Depends(get_db) , timeinterval 
     # stocks = db.query(Stock).all()[:]
         stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
         # update  the current price as well  
-        pricingdata = update_single_ticker(ticker , db)
+        pricingdata = update_single_ticker_supabase(ticker)
         
-        # c1 = CreateVolumeChannel(db , stock.Ticker , period="1m")
-        # c2 = CreateVolumeChannel(db , stock.Ticker , period="1d") 
+        c1 = CreateVolumeChannel(db , stock.Ticker , period="1m")
+        c2 = CreateVolumeChannel(db , stock.Ticker , period="1d") 
 
 
-        # data_1d = MakeStrongSupportResistance(stock.Ticker , db , period = "1d" )
-        # data_1m = MakeStrongSupportResistance(stock.Ticker , db , period = "1m")
+        data_1d = MakeStrongSupportResistance(stock.Ticker , db , period = "1d" )
+        data_1m = MakeStrongSupportResistance(stock.Ticker , db , period = "1m")
         
 
-        # data_1d = CreatepatternSuppourt(stock.Ticker , db , period = "1d" )
-        # data_1m = CreatepatternSuppourt(stock.Ticker , db , period = "1m")
+        data_1d = CreatepatternSuppourt(stock.Ticker , db , period = "1d" )
+        data_1m = CreatepatternSuppourt(stock.Ticker , db , period = "1m")
  
-        # channeldata = CreateChannel(db, stock.Ticker,timeinterval ,period="1m")             
-        # channeldata = CreateChannel(db, stock.Ticker,timeinterval ,period="1d")             
+        channeldata = CreateChannel(db, stock.Ticker,timeinterval ,period="1m")             
+        channeldata = CreateChannel(db, stock.Ticker,timeinterval ,period="1d")             
 
 
-        # Rsidata = CalculateRSI( stock.Ticker,db , period = "1m")
-        # Rsidata = CalculateRSI( stock.Ticker,db , period = "1d")
+        Rsidata = CalculateRSI( stock.Ticker,db , period = "1m")
+        Rsidata = CalculateRSI( stock.Ticker,db , period = "1d")
 
 
         return pricingdata
