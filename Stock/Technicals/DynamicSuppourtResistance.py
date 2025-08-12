@@ -4,9 +4,6 @@ def CalculateSwingPoints(ticker, db, period):
     from sqlalchemy import types as satypes
     from Database.models import PriceData, SwingPoints, Stock
 
-    # -------------------------
-    #  Fetch price data
-    # -------------------------
     records = (
         db.query(PriceData)
         .filter(PriceData.ticker == ticker, PriceData.period == period)
@@ -33,12 +30,9 @@ def CalculateSwingPoints(ticker, db, period):
     data.set_index("Date", inplace=True)
     data = data.dropna(subset=['Open', 'High', 'Low', 'Close'])
 
-    # -------------------------
-    #  Swing / Pattern logic
-    # -------------------------
     window = 10
-    is_min = (data['Low'] == data['Low'].rolling(window * 2 + 1, center=True).min())
-    is_max = (data['High'] == data['High'].rolling(window * 2 + 1, center=True).max())
+    is_min = (data['Low'] == data['Low'].rolling(window * 2 ).min())
+    is_max = (data['High'] == data['High'].rolling(window * 2 ).max())
 
     def detect_candle_pattern(row, prev_row):
         open_, close, high, low = row['Open'], row['Close'], row['High'], row['Low']
@@ -98,9 +92,6 @@ def CalculateSwingPoints(ticker, db, period):
     swing_lows_pattern = swing_lows_all[swing_lows_all['Pattern'] == 'bullish']
     swing_highs_pattern = swing_highs_all[swing_highs_all['Pattern'] == 'bearish']
 
-    # -------------------------
-    #  Divergence detection (duplicate-safe)
-    # -------------------------
     all_bullish_divergence_idx = []
     for curr_idx in swing_lows_all.index.unique():
         curr_positions = data.index.get_indexer_for([curr_idx])
@@ -133,42 +124,29 @@ def CalculateSwingPoints(ticker, db, period):
                     all_bearish_divergence_idx.append(data.index[curr_pos])
                     break
 
-    # -------------------------
-    #  DB type-aware normalization helpers
-    # -------------------------
-    from sqlalchemy import inspect
     col_type = SwingPoints.__table__.c.time.type  # sqlalchemy column type object
 
     def normalize_for_db(ts):
-        """
-        Convert pandas.Timestamp (or datetime-like) into the correct python object
-        to be compared/inserted into the SwingPoints.time column,
-        depending on the column type (Time or DateTime).
-        """
         ts = pd.Timestamp(ts)
-        # If column is time-only -> use datetime.time (loses date)
         if isinstance(col_type, satypes.Time):
             return ts.time()
-        # If column is DateTime
+
         if isinstance(col_type, satypes.DateTime):
             if getattr(col_type, "timezone", False):
-                # DB stores timezone-aware datetimes: ensure tz-aware UTC
+
                 if ts.tzinfo is None:
                     ts = ts.tz_localize('UTC')
                 else:
                     ts = ts.tz_convert('UTC')
                 return ts.to_pydatetime()
             else:
-                # DB stores naive datetime: convert to UTC naive
+
                 if ts.tzinfo is not None:
                     ts = ts.tz_convert('UTC').tz_localize(None)
                 return ts.to_pydatetime()
-        # fallback: return raw python datetime
+
         return ts.to_pydatetime()
 
-    # -------------------------
-    #  Batch existing times & prepare inserts
-    # -------------------------
     existing_raw = db.query(SwingPoints.time).filter(SwingPoints.stock_id == stock_id).all()
     existing_times_raw = [r[0] for r in existing_raw]
     existing_norm = set(normalize_for_db(t) for t in existing_times_raw)
@@ -178,7 +156,6 @@ def CalculateSwingPoints(ticker, db, period):
     def add_if_new(idx, pattern, tag):
         n = normalize_for_db(idx)
         if n not in existing_norm:
-            # ensure stored value passed into model is the same normalized object
             new_entries.append(SwingPoints(pattern=pattern, time=n, period=period, tag=tag, stock_id=stock_id))
             existing_norm.add(n)  # avoid duplicates within this run
 
@@ -203,4 +180,5 @@ def CalculateSwingPoints(ticker, db, period):
         "SwingLowsPattern": swing_lows_pattern.to_dict(),
         "SwingHighsPattern": swing_highs_pattern.to_dict()
     }
+
     return swingpoints, data
