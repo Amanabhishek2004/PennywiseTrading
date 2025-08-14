@@ -34,7 +34,10 @@ class StockTechnicalsSchema(BaseModel):
 class EarningMetricSchema(BaseModel):
     id: str
     OperatingRevenue: Optional[str]
+    Date: Optional[str]
     EBIT_cagr: Optional[float]
+    GrossProfit: Optional[str]
+    NetProfitMargin : Optional[str]
     EBITDA: Optional[str]
     EBITDA_cagr: Optional[float]
     OperatingRevenue_Cagr: Optional[float]
@@ -105,8 +108,13 @@ class FinancialsSchema(BaseModel):
     RetainedEarnings_cagr: Optional[float]
     RetainedEarnings: Optional[str]
     EquityCapital :Optional[str]
+    Date_cashflow: Optional[str]
     UnusualExpense: Optional[str]
     DepreciationAmortization: Optional[str]
+    Date_BalanceSheet : Optional[str]
+    OtherLiabilities: Optional[str]
+    OtherAssets: Optional[str]
+    TotalReceivablesNet: Optional[str]
     WorkingCapital: Optional[str]
     CashfromFinancingActivities: Optional[str]
     CashfromInvestingActivities: Optional[str]
@@ -116,6 +124,7 @@ class FinancialsSchema(BaseModel):
     FixedAssets: Optional[str]
     TotalLiabilities: Optional[str]
     TotalDebt: Optional[str]
+    ROCE : Optional[str]
 
     class Config:
         orm_mode = True
@@ -240,6 +249,8 @@ class StockSearchschema(BaseModel):
     id: str 
     CompanyName: Optional[str]
     Ticker: str
+    pctChange: Optional[float] 
+    CurrentPrice: Optional[float]
     Industry: Optional[str]
     TechnicalIntradayScore  : Optional[float] = 0.0 
     FinancialScore : Optional[float] = 0.0
