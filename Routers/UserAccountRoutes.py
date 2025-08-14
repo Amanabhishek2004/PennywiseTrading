@@ -198,7 +198,6 @@ def verify_premium_access(
     # Check if apikey belongs to a user
     apikey_record = db.query(ApiKeyUsage).filter(ApiKeyUsage.apikey == apikey).first()
 
-
     if not apikey_record and apikey not in ADMINAPIKEY:
         raise HTTPException(status_code=403, detail="Invalid API key")
 

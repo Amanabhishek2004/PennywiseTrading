@@ -86,52 +86,49 @@ def calculate_forward_pe(ticker, db, tax_rate=0.3):
              "OperatingExpense" : operating_expense_growth , 
              "InterestExpenseGrowth" : interest_growth}
 
+import numpy as np
+import pandas as pd
+from sqlalchemy.orm import Session
 
-def CalculateMedianpe(ticker, db):
+def CalculateMedianpe(ticker, db: Session):
     # Fetch stock and EPS
     stock_data = db.query(Stock).filter(Stock.Ticker == ticker).first()
     if not stock_data or not stock_data.earning_metrics:
-        print("erorr")
+        print("error")
         return {"error": "Stock or earning metrics not found."}
 
     epsarray = parse_data(stock_data.earning_metrics[0].epsTrailingTwelveMonths)
     epsgrowth = stock_data.earning_metrics[0].epsForward
-    peg = (stock_data.CurrentPrice / epsarray[-1])  if epsarray[-1] !=0 else 0
+    peg = (stock_data.CurrentPrice / epsarray[-1]) if epsarray[-1] != 0 else 0
 
-    years = len(epsarray)
-    num_days = years * 240
-
+    # Get all price data in chronological order
     price_data = (
         db.query(PriceData)
         .filter(PriceData.stock_id == stock_data.id, PriceData.period == "1d")
-        .order_by(PriceData.date.desc())
-        .limit(num_days)
-    ).all()
+        .order_by(PriceData.date.asc())
+        .all()
+    )
 
-    if not price_data or len(price_data) < 240:
-        return {"error": "Insufficient price data."}
+    # Get unique years from price data, sorted descending
+    unique_years = sorted({pd.Timestamp(p.date).year for p in price_data})[::-1]
 
-    # Reverse to chronological order
-    price_data = list(reversed(price_data))
+    all_pe_ratios = []
+    for i, year in enumerate(unique_years):
+        if i >= len(epsarray) or epsarray[i] == 0:
+            continue  # skip if no EPS data for this year
 
-    pe_ratios = []
-    for i in range(years):
-        start = i * 240
-        end = (i + 1) * 240
-        year_slice = price_data[start:end]
+        # Get all daily prices for the year
+        prices_for_year = [p for p in price_data if pd.Timestamp(p.date).year == year]
+        if not prices_for_year:
+            continue
 
-        # Skip if slice is empty or no corresponding EPS
-        if not year_slice or i >= len(epsarray) or epsarray[i] == 0:
-            pe_ratios.append(np.nan)
-        else:
-            # Use last available price in the slice
-            last_price = year_slice[-1].close_price
-            pe_ratio = last_price / epsarray[i]
-            pe_ratios.append(pe_ratio)
+        # Compute PE for each day of that year
+        yearly_pe = [p.close_price / epsarray[i] for p in prices_for_year if epsarray[i] != 0]
+        all_pe_ratios.extend(yearly_pe) 
 
-    # Clean and calculate median
-    pe_ratios = [pe for pe in pe_ratios if not np.isnan(pe)]
-    median_pe = float(np.median(pe_ratios)) if pe_ratios else None
+    # Calculate median across all PEs
+    all_pe_ratios = [pe for pe in all_pe_ratios if not np.isnan(pe)]
+    median_pe = float(np.median(all_pe_ratios)) if all_pe_ratios else None
 
     return {
         "PEG": round(peg / epsgrowth, 2) if epsgrowth else None,

@@ -3,19 +3,78 @@ import numpy as np
 def CalculateCOE(beta=1, riskfreereturn=7.26, equityriskpremium=7.26):
     return (beta * equityriskpremium + riskfreereturn) / 100
 
-def CalculateROE(equitycapital , reserves, netincome):
+import numpy as np
+
+def CalculateROE(equitycapital, reserves, netincome):
+    def safe_float(x):
+        try:
+            if isinstance(x, str):
+                x = x.replace(",", "").strip()
+                if x == "":
+                    return np.nan
+            return float(x)
+        except (ValueError, TypeError):
+            return np.nan
+
+    equitycapital = [safe_float(x) for x in equitycapital]
+    reserves = [safe_float(x) for x in reserves]
+    netincome = [safe_float(x) for x in netincome]
 
     shareholdersequity = [
-        equity + reserve if equity and reserve else np.nan
+        (equity if equity is not None else 0) +
+        (reserve if reserve is not None else 0)
         for equity, reserve in zip(equitycapital, reserves)
     ]
-    if not shareholdersequity or not netincome:
-        return np.nan
+
     yearly = [
-        income / equity if equity and income else np.nan
+        (income / equity) if equity not in (0, np.nan) and not np.isnan(equity) and income is not None else np.nan
         for equity, income in zip(shareholdersequity, netincome)
     ]
-    return np.nanmedian(yearly)
+
+    return np.nanmedian(yearly), yearly
+
+import numpy as np
+
+def calculate_gross_margin_array(operating_revenue, operating_profit, operating_expenses):
+    """
+    Calculate Gross Margin (%) for arrays/lists of inputs.
+    Returns a list of gross margin percentages (rounded to 2 decimals).
+    """
+
+    def safe_float(x):
+        try:
+            if isinstance(x, str):
+                x = x.replace(",", "").strip()
+                if x == "":
+                    return np.nan
+            return float(x)
+        except (ValueError, TypeError):
+            return np.nan
+
+    # Convert to float arrays
+    rev = np.array([safe_float(x) for x in operating_revenue], dtype=float)
+    op_profit = np.array([safe_float(x) for x in operating_profit], dtype=float)
+    op_exp = np.array([safe_float(x) for x in operating_expenses], dtype=float)
+    print(f"Revenue: {rev}, Operating Profit: {op_profit}, Operating Expenses: {op_exp}")
+    # Make lengths match
+    max_len = max(len(rev), len(op_profit), len(op_exp))
+    def pad(arr, length):
+        return np.pad(arr, (0, length - len(arr)), constant_values=np.nan)
+
+    rev = pad(rev, max_len)
+    op_profit = pad(op_profit, max_len)
+    op_exp = pad(op_exp, max_len)
+
+    # Calculate gross profit
+    gross_profit = op_profit + op_exp 
+    print(f"Gross Profit: {gross_profit}")
+
+    # Calculate gross margin safely
+    gross_margin = np.where(rev != 0, (gross_profit / rev) * 100, np.nan)
+
+    return np.round(gross_margin, 2).tolist()
+
+
 
 def CalculateATR(Assets, Revenue):
      
@@ -45,14 +104,15 @@ def CalculateICR(EBIT, INTEREST):
     return np.nanmedian(yearly)
 
 
-import numpy as np
-
-import numpy as np
 
 def CalculateFCFF(operatingCashflow, interest, taxrate, fa, wc):
-
+    """
+    Calculate CapEx and FCFF.
+    Returns:
+        capex_list, fcff_list
+    """
     def safe_to_float(value):
-        """Convert value to float if possible, otherwise return NaN."""
+        """Convert value to float if possible, otherwise NaN."""
         try:
             if isinstance(value, str) and value.strip() == "":
                 return np.nan
@@ -60,22 +120,21 @@ def CalculateFCFF(operatingCashflow, interest, taxrate, fa, wc):
         except (ValueError, TypeError):
             return np.nan
 
-    # 1) Convert all inputs to 1D NumPy arrays of floats
+    # Convert all inputs to float lists with NaN → 0.0
     arrays = {}
     for name, seq in (("fa", fa), ("wc", wc), ("taxrate", taxrate),
                       ("interest", interest), ("ocf", operatingCashflow)):
-        arr = np.array([safe_to_float(x) for x in seq], dtype=float)
-        arrays[name] = np.nan_to_num(arr, nan=0.0)
+        arr = [safe_to_float(x) for x in seq]
+        arrays[name] = [0.0 if np.isnan(v) else v for v in arr]
 
-    # 2) Figure out how long we need to be (the longest of fa & wc for capex,
-    #    and the longest of everything for FCFF)
+    # Determine required lengths
     cap_len = max(len(arrays["fa"]), len(arrays["wc"]))
     fcff_len = max(len(arrays["ocf"]), len(arrays["interest"]),
                    len(arrays["taxrate"]), cap_len)
 
-    # 3) Pad everything out
-    def pad_to(a, length):
-        return np.pad(a, (0, length - len(a)), constant_values=0.0)
+    # Pad lists
+    def pad_to(lst, length):
+        return lst + [0.0] * (length - len(lst))
 
     fa   = pad_to(arrays["fa"], cap_len)
     wc   = pad_to(arrays["wc"], cap_len)
@@ -83,22 +142,56 @@ def CalculateFCFF(operatingCashflow, interest, taxrate, fa, wc):
     irt  = pad_to(arrays["interest"], fcff_len)
     txr  = pad_to(arrays["taxrate"], fcff_len)
 
-    # 4) Compute capex (size = cap_len)
-    fa_diff = np.diff(fa,  prepend=fa[0])
-    wc_diff = np.diff(wc,  prepend=wc[0])
-    capex   = list(-fa_diff - wc_diff)
+    # Compute CapEx
+    fa_diff = [fa[i] - fa[i-1] if i > 0 else 0.0 for i in range(len(fa))]
+    wc_diff = [wc[i] - wc[i-1] if i > 0 else 0.0 for i in range(len(wc))]
+    capex = [-fa_diff[i] - wc_diff[i] for i in range(len(fa))]
 
-    # 5) Compute FCFF (size = fcff_len), note to cast taxrate from % to fraction
-    #    and safeguard against any floating‐point leftovers in capex
-    capex = pad_to(np.array(capex, dtype=float), fcff_len)
-    fcff  = [
-        float(ocf[i] + irt[i] * (1 - txr[i] / 100.0) - capex[i])
+    # Compute FCFF
+    capex_padded = pad_to(capex, fcff_len)
+    fcff = [
+        ocf[i] + irt[i] * (1 - txr[i] / 100.0) - capex_padded[i]
         for i in range(fcff_len)
     ]
 
     return capex, fcff
 
 
+
+import numpy as np
+
+def calculate_net_profit_margin_array(operating_revenue, net_income):
+    """
+    Calculate Net Profit Margin (%) for arrays/lists of inputs.
+    Returns a list of net profit margin percentages (rounded to 2 decimals).
+    """
+
+    def safe_float(x):
+        try:
+            if isinstance(x, str):
+                x = x.replace(",", "").strip()
+                if x == "":
+                    return np.nan
+            return float(x)
+        except (ValueError, TypeError):
+            return np.nan
+
+    # Convert to float arrays
+    rev = np.array([safe_float(x) for x in operating_revenue], dtype=float)
+    net_inc = np.array([safe_float(x) for x in net_income], dtype=float)
+
+    # Pad to same length
+    max_len = max(len(rev), len(net_inc))
+    def pad(arr, length):
+        return np.pad(arr, (0, length - len(arr)), constant_values=np.nan)
+
+    rev = pad(rev, max_len)
+    net_inc = pad(net_inc, max_len)
+
+    # Calculate net profit margin safely
+    net_profit_margin = np.where(rev != 0, (net_inc / rev) * 100, np.nan)
+
+    return np.round(net_profit_margin, 2).tolist()
 
 def CalculateROIC(ROIC):
     return np.nanmedian(ROIC)
@@ -252,39 +345,65 @@ def WACCcalculator(stock_dict):
     )
 
 
-def calculate_working_capital_from_days(days, sales):
+import numpy as np
 
+
+def calculate_receivables_from_days(receivable_days, sales):
+    """
+    Calculate receivables using:
+    Receivables = (Receivable Days * Sales) / 365
+    """
     def safe_to_float(value):
-        """Convert value to float if possible, otherwise return NaN."""
         try:
-            # Treat empty strings or whitespace as NaN
             if isinstance(value, str) and value.strip() == "":
                 return np.nan
             return float(value)
         except (ValueError, TypeError):
             return np.nan
 
-    if not isinstance(days, list) or not isinstance(sales, list):
-        raise ValueError("Both 'days' and 'sales' must be lists.")
-    
-    # Convert all values to float, handling invalid inputs
-    days = [safe_to_float(x) for x in days]
+    receivable_days = [safe_to_float(x) for x in receivable_days]
     sales = [safe_to_float(x) for x in sales]
-    
-    # Determine the minimum length to calculate
-    min_length = min(len(days), len(sales))
-    
-    # Calculate working capital for the common length
-    working_capital = [
-        (days[i] * sales[i]) / 365 if not np.isnan(days[i]) and not np.isnan(sales[i]) else np.nan
-        for i in range(min_length)
-    ]
-    
-    # Fill remaining indices with NaN for the longer list
-    if len(days) > min_length:
-        working_capital.extend([np.nan] * (len(days) - min_length))
-    elif len(sales) > min_length:
-        working_capital.extend([np.nan] * (len(sales) - min_length))
 
+    min_length = min(len(receivable_days), len(sales))
+    receivables = []
+    for i in range(min_length):
+        if np.isnan(receivable_days[i]) or np.isnan(sales[i]):
+            receivables.append(np.nan)
+        else:
+            receivables.append((receivable_days[i] * sales[i]) / 365)
+
+    return receivables
+
+
+def calculate_working_capital(total_liabilities, total_debt, current_assets):
+    """
+    Calculate working capital using:
+    Current Liabilities = Total Liabilities - Total Debt
+    Working Capital = Current Assets - Current Liabilities
+    """
+    def safe_to_float(value):
+        try:
+            if isinstance(value, str) and value.strip() == "":
+                return np.nan
+            return float(value)
+        except (ValueError, TypeError):
+            return np.nan
+
+    # Convert inputs to lists of floats
+    total_liabilities = [safe_to_float(x) for x in total_liabilities]
+    total_debt = [safe_to_float(x) for x in total_debt]
+    current_assets = [safe_to_float(x) for x in current_assets]
+
+    # Ensure all lists have the same length
+    min_length = min(len(total_liabilities), len(total_debt), len(current_assets))
+    
+    working_capital = []
+    for i in range(min_length):
+        if np.isnan(total_liabilities[i]) or np.isnan(total_debt[i]) or np.isnan(current_assets[i]):
+            working_capital.append(np.nan)
+        else:
+            current_liabilities = total_liabilities[i] - total_debt[i]
+            wc = current_assets[i] - current_liabilities
+            working_capital.append(wc)
+    
     return working_capital
-

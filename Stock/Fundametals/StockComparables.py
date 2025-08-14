@@ -40,34 +40,40 @@ def safe_mean(arr):
     arr = np.array(arr)
     return float(np.nanmean(arr)) if arr.size > 0 else None
 
+def safe_div(numerator, denominator):
+    """Safe division that returns None if denominator is zero or invalid."""
+    try:
+        if denominator in (0, None) or (isinstance(denominator, float) and np.isnan(denominator)):
+            return None
+        return numerator / denominator
+    except (ZeroDivisionError, TypeError, ValueError):
+        return None
+
+
 
 def calculate_ratios_from_annual_data(stock):
-    # Use relationships to get related objects
+    import numpy as np
+
+    # Relationships
     financials = stock.financials[0] if stock.financials else None
     earning_metrics = stock.earning_metrics[0] if stock.earning_metrics else None
     metrics = stock.metrics[0] if stock.metrics else None
     quaterly_results = stock.quaterly_results[0] if stock.quaterly_results else None
-
+    shareholdings  = stock.shareholdings[0] if stock.shareholdings else None
     if not (financials and earning_metrics and metrics and quaterly_results):
         return {"error": "Missing related financial data."}
 
     current_price = stock.CurrentPrice
     shares_outstanding = stock.sharesOutstanding
-    market_cap = (
-        (current_price * shares_outstanding) / 1e7
-        if current_price and shares_outstanding
-        else 0
-    )
+    market_cap = safe_div(current_price * shares_outstanding, 1e7) if current_price and shares_outstanding else 0
 
-    # Use totalCash if available, else fallback to RetainedEarnings (not ideal, but for demo)
-    cash_data = parse_data(
-       financials.RetainedEarnings
-    )
+    # Use retained earnings as cash placeholder
+    cash_data = parse_data(financials.RetainedEarnings)
     cash = cash_data[-1] if cash_data else 0
-    print(getattr(financials, "RetainedEarnings", "[]"))
 
     total_debt_data = parse_data(financials.TotalDebt)
     total_debt = total_debt_data[-1] if total_debt_data else 0
+
     ebitda_data = parse_data(earning_metrics.EBITDA)
     ebitda = ebitda_data[-1] if ebitda_data else 0
 
@@ -76,11 +82,10 @@ def calculate_ratios_from_annual_data(stock):
 
     sales_quarterly = parse_data(quaterly_results.Sales_Quaterly)
     netprofit_quarterly = parse_data(quaterly_results.NetProfit_Quaterly)
-
     op_quarterly = parse_data(quaterly_results.OperatingProfit_Quaterly)
     eps_quarterly = parse_data(quaterly_results.EPS_in_Rs_Quaterly)
 
-    # Calculate growth ratios
+    # Growth calculations
     sales_qoq = calc_qoq_growth(sales_quarterly)
     netprofit_qoq = calc_qoq_growth(netprofit_quarterly)
     op_qoq = calc_qoq_growth(op_quarterly)
@@ -95,15 +100,8 @@ def calculate_ratios_from_annual_data(stock):
     fa = parse_data(financials.FixedAssets)
     fa = fa[-1] if fa else 0
 
-    quickassets = totalassets - fa
-
-    total_liabilities = parse_data(financials.TotalLiabilities)
-    total_liabilities = total_liabilities[-1] if total_liabilities else 0
-
     total_debt_list = parse_data(financials.TotalDebt)
     total_debt_last = total_debt_list[-1] if total_debt_list else 0
-
-    quickliabilities = total_liabilities - total_debt_last
 
     eps_data = parse_data(earning_metrics.epsTrailingTwelveMonths)
     earnings_per_share = eps_data[-1] if eps_data else 0
@@ -114,40 +112,47 @@ def calculate_ratios_from_annual_data(stock):
     equity_capital = parse_data(financials.EquityCapital)
     equity_capital = equity_capital[-1] if equity_capital else 0
 
+    dii = parse_data(shareholdings.DIIs)
+    fii = parse_data(shareholdings.FIIs)
+    shareholderscount = parse_data(shareholdings.ShareholdersCount)
+
+    dii_growth = safe_div((dii[0] - dii[-1]), (dii[-1] * len(dii))) if dii else None
+    fii_growth = safe_div((fii[0] - fii[-1]), (fii[-1] * len(fii))) if fii else None
+    shareholderscount_growth = (
+        safe_div((shareholderscount[0] - shareholderscount[-1]),
+                 (shareholderscount[-1] * len(shareholderscount)))
+        if shareholderscount else None
+    )
+
     shareholdersEquity = equity_capital + cash
-    growth_rate = getattr(earning_metrics, "OperatingRevenue_Cagr", 0)
+    earningData = parse_data(earning_metrics.epsTrailingTwelveMonths)
+    growth_rate = safe_div((earningData[-1] - earningData[-2]), earningData[-1]) * 100 if len(earningData) >= 2 else None
+
     ratios = {}
-    print(total_debt , equity_capital)
-    try:
-       
-        ratios["PE"] = (
-            current_price / earnings_per_share if earnings_per_share > 0 else None
-        )
-        ratios["PS"] = market_cap / revenue if revenue > 0 else None
-        ratios["Price_to_Cashflow"] = market_cap / fcff if fcff else None
-        ev = market_cap + total_debt - cash
-        ratios["EV"] = ev
-        ratios["EV/EBITDA"] = ev / ebitda if ebitda > 0 else None
-        ratios["PEG"] = (
-            
-            ( (ratios["PE"]  if ratios["PE"] else 0)/ (growth_rate)) if growth_rate > 0 else None
-        )
-        ratios["FCFF_Yield"] = fcff / market_cap if market_cap > 0 else None
-        ratios["CurrentRatio"] = (
-            quickassets / quickliabilities if quickliabilities else None
-        )
-        ratios["DebtToEquity"] = (
-            total_debt / shareholdersEquity if shareholdersEquity else None
-        )
-        ratios["Avg_Sales_QoQ_Growth_Percent"] = safe_mean(sales_qoq)
-        ratios["Avg_NetProfit_QoQ_Growth_Percent"] = safe_mean(netprofit_qoq)
-        ratios["Avg_OperatingProfit_QoQ_Growth_Percent"] = safe_mean(op_qoq)
-        ratios["Avg_EPS_QoQ_Growth_Percent"] = safe_mean(eps_qoq)
-    
-    except ZeroDivisionError:
-        pass
+    opm = parse_data(earning_metrics.operatingMargins)
+    opm_growth = safe_div((opm[-1] - opm[0]), (len(opm) * opm[-1])) if opm else None
+
+    # Ratios
+    ratios["PE"] = safe_div(current_price, earnings_per_share) if earnings_per_share else None
+    ratios["PS"] = safe_div(market_cap, revenue)
+    ratios["Price_to_Cashflow"] = safe_div(market_cap, fcff)
+    ev = market_cap + total_debt - cash
+    ratios["EV"] = ev
+    ratios["EV/EBITDA"] = safe_div(ev, ebitda)
+    ratios["PEG"] = safe_div(ratios["PE"], growth_rate) if ratios.get("PE") and growth_rate else None
+    ratios["FCFF_Yield"] = safe_div(fcff, market_cap)
+    ratios["DebtToEquity"] = safe_div(total_debt, shareholdersEquity)
+    ratios["Avg_Sales_QoQ_Growth_Percent"] = safe_mean(sales_qoq)
+    ratios["Avg_NetProfit_QoQ_Growth_Percent"] = safe_mean(netprofit_qoq)
+    ratios["Avg_OperatingProfit_QoQ_Growth_Percent"] = safe_mean(op_qoq)
+    ratios["Avg_EPS_QoQ_Growth_Percent"] = safe_mean(eps_qoq)
+    ratios["fii_growth"] = fii_growth
+    ratios["dii_growth"] = dii_growth
+    ratios["shareholderscount_growth"] = shareholderscount_growth
+    ratios["OPM_Growth"] = opm_growth
 
     return ratios
+
 
 
 # Example usage

@@ -13,7 +13,6 @@ import numpy as np
 from Stock.Technicals.SuppourtResistance import *
 from Stock.Technicals.Meanreversion import * 
 from datetime import timezone
-
 from Stock.Fundametals.StockMetricCalculation import * 
 from Routers.UserAccountRoutes import get_current_user , verify_premium_access
 from Stock.Fundametals.StockComparables import * 
@@ -98,7 +97,7 @@ async def upload_data(file: UploadFile, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading Excel file: {str(e)}")
 
-    for row_index, row in df[1400 : ].iterrows():
+    for row_index, row in df[:].iterrows():
         banking = row.get("industry") == "Banks - Regional" or row.get("sector") == "Financial Services"
         ticker = safe_get_as_string(row.get('Ticker'))
 
@@ -138,26 +137,33 @@ async def upload_data(file: UploadFile, db: Session = Depends(get_db)):
         interest_expense = convert_to_list(safe_column(row, "Interest", "Interest"))
         tax_rate = convert_to_list(safe_column(row, "Tax %", "Tax %"))
         fixed_assets = convert_to_list(safe_column(row, "Fixed Assets+", "Fixed Assets"))
-        working_capital_days = convert_to_list(safe_column(row, "Working Capital Days", "Working Capital Days"))
         revenue = convert_to_list(safe_column(row, "Sales+", "Sales")) if not banking else convert_to_list(safe_column(row, "Revenue+", "Revenue"))
         equity_capital = convert_to_list(safe_column(row, "Equity Capital", "Equity Capital"))
         retained_earnings = convert_to_list(safe_column(row, "Reserves+", "Reserves"))
         net_income = convert_to_list(safe_column(row, "Net Profit+", "Net Profit"))
         total_assets = convert_to_list(safe_column(row, "Total Assets", "Total Assets"))
+        otherassets = convert_to_list(safe_column(row, "Other Assets+", "Other Assets"))
+        receivabledays = convert_to_list(safe_column(row, "Debtor Days", "Debtor Days"))
+        total_liabilities = convert_to_list(safe_column(row, "Total Liabilities", "Total Liabilities"))
         debt = convert_to_list(safe_column(row, "Borrowings+", "Borrowings"))
-
+        operatingprofit = convert_to_list(safe_column(row, "Operating Profit", "Operating Profit")) if not banking else convert_to_list(safe_column(row, "Financing Profit", "Financing Profit"))
         beta = safe_get_as_float(row.get("beta"), 1)
         roic_list = convert_to_list(safe_column(row, "ROIC %", "ROIC %"))
-
-        working_capital = calculate_working_capital_from_days(working_capital_days, revenue)
+        expense = convert_to_list(safe_column(row, "Expenses+", "Expenses"))
+        working_capital = calculate_working_capital(total_liabilities , total_debt=debt , current_assets=otherassets )
+        total_receivables = calculate_receivables_from_days(
+            receivabledays, revenue
+        )
+        grossmargin =calculate_gross_margin_array(revenue , operating_profit=operatingprofit  , operating_expenses = expense)
+        netmargin = calculate_net_profit_margin_array(revenue , net_income)
         capex, fcff = CalculateFCFF(operating_cashflow, interest_expense, tax_rate, fixed_assets, working_capital)
         wacc = CalculateWACC(CalculateCOE(beta), beta, debt, equity_capital, tax_rate)
-        roe = CalculateROE(equity_capital, retained_earnings, net_income)
+        roe  , roe_yearly = CalculateROE(equity_capital, retained_earnings, net_income)
         atr = CalculateATR(total_assets, revenue)
         cod = CalculateCOI(interest_expense, debt)
         roic = CalculateROIC(roic_list)
         icr = CalculateICR(convert_to_list(safe_column(row, "Profit before tax", "Profit before tax")), interest_expense)
-
+         
         db.add(Quaterlyresult(
             id=str(uuid4()),
             stock_id=stock.id,
@@ -177,6 +183,9 @@ async def upload_data(file: UploadFile, db: Session = Depends(get_db)):
         db.add(EarningMetric(
             id=str(uuid4()),
             stock_id=stock.id,
+            RoeYearly = str(roe_yearly) if roe_yearly else "0", 
+            GrossProfit = safe_get_as_string(grossmargin), 
+            NetProfitMargin = safe_get_as_string(netmargin),    
             Date=str(row.get("Date_profit_loss")),
             EBIT_cagr=float(safe_get_value(calculate_growth_with_rolling(safe_get_as_string(row.get("Profit before tax"), 0)))),
             EBITDA_cagr=float(safe_get_value(calculate_growth_with_rolling(safe_get_as_string(safe_column(row, "Operating Profit", "Operating Profit"), 0)))),
@@ -221,8 +230,10 @@ async def upload_data(file: UploadFile, db: Session = Depends(get_db)):
             CashfromFinancingActivities=safe_get_as_string(safe_column(row, "Cash from Financing Activity+", "Cash from Financing Activity"), "0"),
             CashfromInvestingActivities=safe_get_as_string(safe_column(row, "Cash from Investing Activity+", "Cash from Investing Activity"), "0"),
             CashFromOperatingActivities=safe_get_as_string(safe_column(row, "Cash from Operating Activity+", "Cash from Operating Activity"), "0"),
+            OtherAssets=safe_get_as_string(safe_column(row, "Other Assets+", "Other Assets"), "0"),
+            OtherLiabilities=safe_get_as_string(safe_column(row, "Other Liabilities+", "Other Liabilities"), "0"),
             TotalAssets=safe_get_as_string(row.get("Total Assets"), "0"),
-            TotalReceivablesNet=safe_get_as_string(row.get("TotalLiabilities"), "0"),
+            TotalReceivablesNet=safe_get_as_string(total_receivables, "0"),
             FixedAssets=safe_get_as_string(safe_column(row, "Fixed Assets+", "Fixed Assets"), "0"),
             TotalLiabilities=safe_get_as_string(row.get("Total Liabilities"), "0"),
             TotalDebt=safe_get_as_string(safe_column(row, "Borrowings+", "Borrowings"), "0"),
@@ -287,29 +298,39 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # --- Helper Functions ---
 def fetch_last_14_supabase(ticker, period):
     """Fetch last 14 records for given ticker and period from Supabase."""
-    rows = supabase.table("PriceData") \
-        .select("open_price, high_price, low_price, close_price, volume, date") \
-        .eq("ticker", ticker) \
-        .eq("period", period) \
-        .order("date", desc=True) \
-        .limit(14) \
+    rows = (
+        supabase.table("PriceData")
+        .select("open_price, high_price, low_price, close_price, volume, date")
+        .eq("ticker", ticker)
+        .eq("period", period)
+        .order("date", desc=True)
+        .limit(14)
         .execute()
-    # print(rows.data)
+    )
+
     if not rows.data:
         return pd.DataFrame()
-      
+
     df = pd.DataFrame(rows.data)
-    df['date'] = pd.to_datetime(df['date'])
-    df.rename( { 
-        "open_price": "Open",
-        "high_price": "High",
-        "low_price": "Low",
-        "close_price": "Close",
-        "volume": "Volume"
-    }, axis=1, inplace=True)            
-    
+
+    # Normalize all date strings before parsing
+    df['date'] = df['date'].apply(normalize_datetime_string)
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+
+    df.rename(
+        {
+            "open_price": "Open",
+            "high_price": "High",
+            "low_price": "Low",
+            "close_price": "Close",
+            "volume": "Volume"
+        },
+        axis=1,
+        inplace=True
+    )
+
     df.set_index('date', inplace=True)
-    
+
     print(df)
     return df.sort_index()
 
@@ -331,39 +352,51 @@ def to_int(val):
     return int(get_scalar(val))
 
 # --- Main Function ---
+from datetime import datetime, timedelta, timezone
+import pandas as pd
+import yfinance as yf
+from uuid import uuid4
+import vectorbt as vbt
+
+# --- Helper function to normalize datetime strings ---
+def normalize_datetime_string(dt_str: str) -> str:
+    """Convert '2025-08-12 15:25:00+00' → '2025-08-12T15:25:00+0000' for safe parsing."""
+    s = str(dt_str).strip()
+    if " " in s and "+" in s:
+        date_part, tz_part = s.rsplit("+", 1)
+        tz_part = tz_part.strip()
+        if len(tz_part) == 2:  # convert +00 to +0000
+            tz_part += "00"
+        s = date_part.replace(" ", "T") + "+" + tz_part
+    return s
+
 @router.patch("/update_single/{ticker}")
 def update_single_ticker_supabase(ticker: str):
-    # Fetch Stock
+    # Fetch stock from Supabase
     stock_data = supabase.table("Stocks").select("*").eq("Ticker", ticker).single().execute()
-
     if not stock_data.data:
         return {"detail": f"Ticker {ticker} not found."}
     stock = stock_data.data
 
-    # Check last updated time
+    # Parse last updated time
     updated_time = None
-    if stock.get("updated"):
-        try:
-            updated_time = datetime.fromisoformat(stock["updated"])
-            if updated_time.tzinfo is None:
-                updated_time = updated_time.replace(tzinfo=timezone.utc)
-        except Exception:
-            updated_time = None
 
-    if updated_time:
-        start_dt = updated_time
-    else:
-        start_dt = datetime.now(timezone.utc) - timedelta(days=9)
+    safe_time_str = normalize_datetime_string(stock["updated"])
+    updated_time = pd.Timestamp(safe_time_str)
+    print("updated_time" , updated_time)
 
+    start_dt = updated_time if updated_time else datetime.now(timezone.utc) - timedelta(days=9)
     raw_end_dt = start_dt + timedelta(days=9)
     now = datetime.now(timezone.utc)
     end_dt = min(raw_end_dt, now)
-    print(f"Updating {ticker} from {start_dt.date()} to {end_dt.date()}")
-    # Fetch new data from Yahoo Finance
+
+    print(f"Updating {ticker} from {start_dt} to {end_dt}")
+
+    # Fetch Yahoo Finance data
     stock_yf = yf.Ticker(f"{ticker}.NS")
     data_daily = stock_yf.history(period="10y", interval="1d")
-    data_min = stock_yf.history(start = start_dt.date() , end = raw_end_dt.date(), interval="5m")
-    
+    data_min = stock_yf.history(start=start_dt.date(), end=raw_end_dt.date(), interval="5m")
+
     # Merge with last 14 from DB
     prev_daily = fetch_last_14_supabase(ticker, "1d")
     prev_min = fetch_last_14_supabase(ticker, "1m")
@@ -384,13 +417,10 @@ def update_single_ticker_supabase(ticker: str):
         data_min['RSI'] = vbt.RSI.run(data_min['Close'], window=14).rsi
         data_min['OBV'] = vbt.OBV.run(data_min['Close'], data_min['Volume']).obv
         data_min = data_min.dropna()
-    print(data_min)
+
     # Filter new rows only
     if updated_time:
-        updated_time = pd.Timestamp(updated_time)
-        if updated_time.tzinfo is not None:
-            updated_time = updated_time.tz_convert(None)
-
+        updated_time = updated_time.tz_localize(None) if updated_time.tzinfo else updated_time
         for df in [data_daily, data_min]:
             if not isinstance(df.index, pd.DatetimeIndex):
                 df.index = pd.to_datetime(df.index)
@@ -399,19 +429,19 @@ def update_single_ticker_supabase(ticker: str):
 
         data_daily = data_daily[data_daily.index > updated_time]
         data_min = data_min[data_min.index > updated_time]
-
+    print()
     # Insert daily data
     if not data_daily.empty:
         for date, row in data_daily.iterrows():
             date_ts = date if date.tzinfo else date.tz_localize("UTC")
             exists = supabase.table("PriceData").select("id") \
-                .eq("ticker", ticker).eq("date", date_ts.isoformat()).eq("period", "1d").execute()
+                .eq("ticker", ticker).eq("date", date_ts.isoformat().replace("T", " ")).eq("period", "1d").execute()
             if not exists.data:
                 supabase.table("PriceData").insert({
                     "id": str(uuid4()),
                     "stock_id": stock["id"],
                     "ticker": ticker,
-                    "date": date_ts.isoformat(),
+                    "date": date_ts.isoformat().replace("T", " "),
                     "open_price": float(row["Open"]),
                     "high_price": float(row["High"]),
                     "low_price": float(row["Low"]),
@@ -427,13 +457,13 @@ def update_single_ticker_supabase(ticker: str):
         for timestamp, row in data_min.iterrows():
             ts = timestamp if timestamp.tzinfo else timestamp.tz_localize("UTC")
             exists = supabase.table("PriceData").select("id") \
-                .eq("ticker", ticker).eq("date", ts.isoformat()).eq("period", "1m").execute()
+                .eq("ticker", ticker).eq("date", ts.isoformat().replace("T", " ")).eq("period", "1m").execute()
             if not exists.data:
                 supabase.table("PriceData").insert({
                     "id": str(uuid4()),
                     "stock_id": stock["id"],
                     "ticker": ticker,
-                    "date": ts.isoformat(),
+                    "date": ts.isoformat().replace("T", " "),
                     "open_price": float(row["Open"]),
                     "high_price": float(row["High"]),
                     "low_price": float(row["Low"]),
@@ -444,12 +474,12 @@ def update_single_ticker_supabase(ticker: str):
                     "period": "1m",
                 }).execute()
 
-    # Update stock.updated
+    # Update "updated" field in Stocks
     end_dt_with_tz = end_dt.astimezone(timezone(timedelta(hours=5, minutes=30)))
     supabase.table("Stocks").update({"updated": end_dt_with_tz.isoformat()}) \
         .eq("id", stock["id"]).execute()
 
-    # Calculate percent change
+    # Update percent change
     last_close_row = supabase.table("PriceData") \
         .select("close_price") \
         .eq("ticker", ticker) \
@@ -469,6 +499,9 @@ def update_single_ticker_supabase(ticker: str):
     current_price = current_price_row.data[0]["close_price"] if current_price_row.data else None
 
     percent_change = 100 * (current_price - last_close) / last_close if last_close else None
+    
+    supabase.table("Stocks").update({"pctChange": round(percent_change, 2) if percent_change is not None else None}) \
+        .eq("id", stock["id"]).execute()
 
     return {
         "detail": f"{ticker} updated successfully.",
@@ -782,7 +815,7 @@ def update_comparables(stock, db):
         "dividendYield": getattr(stock.earning_metrics[0], "dividendYield", 0.0) if stock.earning_metrics else 0.0,
         "payoutRatio": getattr(stock.earning_metrics[0], "PayoutRatio", None) if stock.earning_metrics else None,
         "medianpe": price_ratios.get("MedianPE"),
-        "peg": price_ratios.get("PEG"),
+        "peg": ratios.get("PEG"),
         "FCFF_Yield": ratios.get("FCFF_Yield"),
         "EV": ratios.get("EV"),
         "EVEBITDA": ratios.get("EV/EBITDA"),
@@ -794,7 +827,7 @@ def update_comparables(stock, db):
         "stock_id": stock.id
     }
     
-    print(combined_ratios)
+    print(ratios)
     # Step 4: Check if Comparables already exist and update it; otherwise create new
     existing = db.query(Comparables).filter(Comparables.stock_id == stock.id).first()
     if existing:

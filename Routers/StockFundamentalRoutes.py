@@ -2,10 +2,8 @@ from datetime import date
 import ast
 import sys
 from typing import List, Optional
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-
 from Database.databaseconfig import get_db
 from Database.models import Stock, User, ReadHistory
 from Database.Schemas.StockFundamentalRoutesSchema import (
@@ -20,9 +18,7 @@ from Routers.UserAccountRoutes import get_current_user
 
 router = APIRouter(prefix="/V2", tags=["Stock Fundamental Data Routes"])
 
-# ------------------------------------------------------
-# 🛠️  Utility helpers for deep size + usage tracking
-# ------------------------------------------------------
+
 
 def _get_deep_size(obj, seen: set | None = None) -> int:
     """Recursively calculate the memory footprint of a Python object (in bytes)."""
@@ -58,9 +54,6 @@ def _track_read_and_data_usage(db: Session, user_id: str, data_obj, read_inc: in
     db.commit()
 
 
-# ------------------------------------------------------
-# 📈  Helper to pair metrics with dates
-# ------------------------------------------------------
 
 def _parse_metric_with_dates(metric_str: str | None, dates: list[str]):
     try:
@@ -69,10 +62,6 @@ def _parse_metric_with_dates(metric_str: str | None, dates: list[str]):
     except Exception:
         return []
 
-
-# ------------------------------------------------------
-# 🏭  Endpoints with usage tracking
-# ------------------------------------------------------
 
 @router.get("/earning-metric/{ticker}", response_model=EarningMetricSchema)
 def get_earning_metric(
@@ -288,11 +277,11 @@ def replace_nan_with_none(obj):
 def get_all_screening_scores(
     db: Session = Depends(get_db),
 ):
-    stocks = db.query(Stock).all()
+    stocks = db.query(Stock).filter(Stock.Ticker == "EASEMYTRIP").all()
     results = []
     for stock in stocks:
         financial_score = calculate_financial_score(stock)
-        technical_scores = calculate_technical_score_periodwise(stock)
+        technical_scores = calculate_technical_score_periodwise(stock , db)
         results.append({
             "ticker": stock.Ticker,
             "financial_score": financial_score,
