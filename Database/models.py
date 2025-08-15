@@ -6,7 +6,7 @@ import json
 from sqlalchemy import event , text
 from Stock.Technicals.SignalGenerator import * 
 from datetime import datetime
-
+from sqlalchemy import UniqueConstraint
 # from Database.DataBaseSingnals.AlertSignal import create_alert_on_stock_update  # adjust import path as needed
 # from .models import StockTechnicals  # or the model you want to listen to
 
@@ -332,6 +332,10 @@ class PriceData(Base):
     RSI = Column(Float)
     OnbalanceVolume = Column(Float)
     stock = relationship("Stock", back_populates="pricedata")
+    
+    __table_args__ = (
+        UniqueConstraint("ticker", "date", "period", name="unique_price_data"),
+    )
 
 # SupportData Table
 class SupportData(Base):
