@@ -31,9 +31,10 @@ def CalculateSwingPoints(ticker, db, period):
     data = data.dropna(subset=['Open', 'High', 'Low', 'Close'])
 
     window = 10
-    is_min = (data['Low'] == data['Low'].rolling(window * 2 ).min())
-    is_max = (data['High'] == data['High'].rolling(window * 2 ).max())
+    is_min = (data['Low'] == data['Low'].rolling(window * 2).min())
+    is_max = (data['High'] == data['High'].rolling(window * 2).max())
 
+    # --- Candle pattern detection ---
     def detect_candle_pattern(row, prev_row):
         open_, close, high, low = row['Open'], row['Close'], row['High'], row['Low']
         body = abs(close - open_)
@@ -87,17 +88,25 @@ def CalculateSwingPoints(ticker, db, period):
         pattern_type.append(detect_candle_pattern(data.iloc[i], data.iloc[i - 1]))
     data['Pattern'] = pattern_type
 
+    # --- Swing points detection ---
     swing_lows_all = data[is_min & (data['RSI20'] < 35)]
     swing_highs_all = data[is_max & (data['RSI20'] > 70)]
     swing_lows_pattern = swing_lows_all[swing_lows_all['Pattern'] == 'bullish']
     swing_highs_pattern = swing_highs_all[swing_highs_all['Pattern'] == 'bearish']
 
+    # --- Divergences ---
     all_bullish_divergence_idx = []
+    all_bearish_divergence_idx = []
+    bullish_divergence_pattern_idx = []
+    bearish_divergence_pattern_idx = []
+
+    # Bullish divergences
     for curr_idx in swing_lows_all.index.unique():
         curr_positions = data.index.get_indexer_for([curr_idx])
         for curr_pos in curr_positions:
             curr_close = data.iloc[curr_pos]['Close']
             curr_rsi = data.iloc[curr_pos]['RSI20']
+            curr_pattern = data.iloc[curr_pos]['Pattern']
             for j in range(1, window + 1):
                 prev_pos = curr_pos - j
                 if prev_pos < 0:
@@ -106,14 +115,17 @@ def CalculateSwingPoints(ticker, db, period):
                 prev_rsi = data.iloc[prev_pos]['RSI20']
                 if curr_close < prev_close and curr_rsi > prev_rsi:
                     all_bullish_divergence_idx.append(data.index[curr_pos])
+                    if curr_pattern == "bullish":
+                        bullish_divergence_pattern_idx.append(data.index[curr_pos])
                     break
 
-    all_bearish_divergence_idx = []
+    # Bearish divergences
     for curr_idx in swing_highs_all.index.unique():
         curr_positions = data.index.get_indexer_for([curr_idx])
         for curr_pos in curr_positions:
             curr_close = data.iloc[curr_pos]['Close']
             curr_rsi = data.iloc[curr_pos]['RSI20']
+            curr_pattern = data.iloc[curr_pos]['Pattern']
             for j in range(1, window + 1):
                 prev_pos = curr_pos - j
                 if prev_pos < 0:
@@ -122,8 +134,11 @@ def CalculateSwingPoints(ticker, db, period):
                 prev_rsi = data.iloc[prev_pos]['RSI20']
                 if curr_close > prev_close and curr_rsi < prev_rsi:
                     all_bearish_divergence_idx.append(data.index[curr_pos])
+                    if curr_pattern == "bearish":
+                        bearish_divergence_pattern_idx.append(data.index[curr_pos])
                     break
 
+    # --- Normalize for DB ---
     col_type = SwingPoints.__table__.c.time.type  # sqlalchemy column type object
 
     def normalize_for_db(ts):
@@ -133,14 +148,12 @@ def CalculateSwingPoints(ticker, db, period):
 
         if isinstance(col_type, satypes.DateTime):
             if getattr(col_type, "timezone", False):
-
                 if ts.tzinfo is None:
                     ts = ts.tz_localize('UTC')
                 else:
                     ts = ts.tz_convert('UTC')
                 return ts.to_pydatetime()
             else:
-
                 if ts.tzinfo is not None:
                     ts = ts.tz_convert('UTC').tz_localize(None)
                 return ts.to_pydatetime()
@@ -157,16 +170,25 @@ def CalculateSwingPoints(ticker, db, period):
         n = normalize_for_db(idx)
         if n not in existing_norm:
             new_entries.append(SwingPoints(pattern=pattern, time=n, period=period, tag=tag, stock_id=stock_id))
-            existing_norm.add(n)  # avoid duplicates within this run
+            existing_norm.add(n)
 
+    # Save swing lows/highs
     for idx in swing_lows_all.index:
         add_if_new(idx, "Weak", "SwingLow")
     for idx in swing_highs_all.index:
         add_if_new(idx, "Weak", "SwingHigh")
+
+    # Save divergences
     for idx in all_bullish_divergence_idx:
         add_if_new(idx, "BullishDivergence", "SwingLow")
     for idx in all_bearish_divergence_idx:
         add_if_new(idx, "BearishDivergence", "SwingHigh")
+
+    # Save divergences with pattern
+    for idx in bullish_divergence_pattern_idx:
+        add_if_new(idx, "BullishDivergencePattern", "SwingLow")
+    for idx in bearish_divergence_pattern_idx:
+        add_if_new(idx, "BearishDivergencePattern", "SwingHigh")
 
     if new_entries:
         db.add_all(new_entries)
@@ -175,6 +197,8 @@ def CalculateSwingPoints(ticker, db, period):
     swingpoints = {
         "BullishDivergingSwing": all_bullish_divergence_idx,
         "BearishDiverganceSwing": all_bearish_divergence_idx,
+        "BullishDivergencePattern": bullish_divergence_pattern_idx,
+        "BearishDivergencePattern": bearish_divergence_pattern_idx,
         "SwingLows": swing_lows_all.to_dict(),
         "SwingHighs": swing_highs_all.to_dict(),
         "SwingLowsPattern": swing_lows_pattern.to_dict(),

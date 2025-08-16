@@ -106,7 +106,6 @@ def CreateUpperChannel(data, window):
     """
     Create an upper channel using a rolling window, with scaling.
     """
-    print(data)
      
     highwindow = data["OnbalanceVolume"].rolling(window=window).max()
     x = np.arange(len(data["OnbalanceVolume"][-window:])).reshape(-1, 1)
