@@ -1,6 +1,6 @@
 from .rsiStrategy import *
 from .Meanreversion import *
-
+# from Database.models import SupportData , 
 from sqlalchemy import func, desc
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -11,14 +11,16 @@ def GenrateSignals(ticker, db, period):
     """
     Generate trading signals based on RSI divergence, channel data, and volume analysis for a given stock ticker.
     """
-    from Database.models import PriceData, StockTechnicals, Stock, Channel
+    from Database.models import PriceData, StockTechnicals, Stock, Channel , SupportData
 
     Prices = (
         db.query(PriceData)
         .filter(PriceData.ticker == ticker, PriceData.period == period)
         .all()
     )
-  
+    
+
+
     closingprices = [price.close_price for price in Prices]
     obvs = [price.OnbalanceVolume for price in Prices[:-1]]
 
@@ -46,7 +48,7 @@ def GenrateSignals(ticker, db, period):
 
     # Fetch live price data
     try:
-        data = yf.Ticker(f"{ticker}.NS").history(period="1d", interval="1m")
+        data = yf.Ticker(f"{ticker}.NS").history(period="1d", interval="5m")
     except Exception as e:
         return {"error": f"Failed to fetch data from Yahoo Finance: {e}"}
 
@@ -55,8 +57,10 @@ def GenrateSignals(ticker, db, period):
     currentrsi = technicaldata.CurrentRsi
     lowerchannelslope = channel.lower_channel_slope
     lowervaolumechannel = technicaldata.VolumeLowerChannelSlope
-
-
+    upperchannelintercept = channel.upper_channel_intercept 
+    upperchannelslope = channel.upper_channel_slope 
+    lowerchannelintercept = channel.lower_channel_intercept 
+   
     closingprices_series = pd.Series(closingprices)
     DMA20 = (
         closingprices_series.rolling(20).mean().iloc[-1]
@@ -68,6 +72,17 @@ def GenrateSignals(ticker, db, period):
         if len(closingprices) >= 50
         else None
     )
+    support = db.query(SupportData).filter(
+        SupportData.stock_id == technicaldata.stock_id,
+        SupportData.period == period,
+        SupportData.Price <= price,
+    ).order_by(desc(SupportData.Price)).first()
+    
+    resistance = db.query(SupportData).filter(
+        SupportData.stock_id == technicaldata.stock_id,
+        SupportData.period == period,
+        SupportData.Price >= price,
+    ).order_by(SupportData.Price.asc()).first()
 
     # Normalized OBV
     std = np.std(obvs[-20:])
@@ -81,10 +96,18 @@ def GenrateSignals(ticker, db, period):
 
     else : 
           rsipeak_max , rsipeak_min = False , False  
+    
+    channel_signals =  { 
+                "upperchannel_break" : upperchannelslope*22 + upperchannelintercept < price,
+                "lowerchannel_break" : lowerchannelslope*22 + lowerchannelintercept > price,
+                "upperchannel_slope" : upperchannelslope,
+    }
 
     Rsisignal = {
         "rsipeak_max": rsipeak_max,
         "rsipeak_min" :rsipeak_min , 
+        "rsidivergenceforbuy" : lowerchannelslope*rsislope > 0,
+        "rsidivergenceforsell" : upperchannelslope*rsislope < 0 ,
         "Rsi" : currentrsi
     }
     masignal = {
@@ -92,7 +115,6 @@ def GenrateSignals(ticker, db, period):
         "Sell": DMA50 > DMA20 if DMA20 and DMA50 else False,
     }
     #  create volume profiles        
-
     
     # Volume Signals
     volumepeaks = CalculateVolumepeakmaxmin(
@@ -106,8 +128,8 @@ def GenrateSignals(ticker, db, period):
 
     volumesignal = {
         "peakDIv": peak_div,
-        "Suppourt": volumepeaks.get("min") if volumepeaks else None,
-        "Resistance": volumepeaks.get("max") if volumepeaks else None,
+        "Suppourt": support.Price if support else None,
+        "Resistance": resistance.Price if resistance else None,
         "normalizedobv": normalized_volscore,
         "CurrentObv": Currentobv,
         "lowerchannel" : lowervaolumechannel
@@ -116,5 +138,6 @@ def GenrateSignals(ticker, db, period):
     return {
         "RSI Signal": Rsisignal,
         "MA Signal": masignal,
+        "channel_signals": channel_signals,
         "Volume Signal": volumesignal,
     }

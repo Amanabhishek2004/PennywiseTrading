@@ -133,16 +133,19 @@ def calculate_financial_score(stock: Stock):
         if vl.ICR is not None:
             score += clamp(vl.ICR * 100, -50, 50)
 
+    if stock.expenses: 
+        expenses = stock.expenses[0]
+        if expenses.operatingExpense is not None:
+            score += clamp((-expenses.operatingExpense + em.OperatingRevenue_Cagr) * 100, -50, 50)   
+            score += clamp((-expenses.Intrest_Expense + em.OperatingRevenue_Cagr) * 100, -50, 50)      
+            score += clamp((-expenses.CurrentDebt_cagr + em.OperatingRevenue_Cagr) * 100, -50, 50)
+    
     return round(score, 2)
-
+    
 
 
 def calculate_technical_score_periodwise(stock: Stock, db, max_score_per_metric=200, max_total_score=500):
-    """
-    Calculate technical scores for each period (e.g., 1d, 1m) using all available fields.
-    Caps per-metric contributions and total score per period.
-    Returns a dict: {period: score}
-    """
+
     scores = {}
     tech_map = {t.period: t for t in stock.technicals}
     channel_map = {c.period: c for c in stock.channels}
