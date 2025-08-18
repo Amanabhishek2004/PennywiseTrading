@@ -493,10 +493,19 @@ def create_alert_on_stock_update(mapper, connection, target):
 event.listen(StockTechnicals, "after_update", create_alert_on_stock_update)
 
 
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from uuid import uuid4
+from datetime import datetime, date
+
 def create_alert_on_swingpoint_insert(mapper, connection, target):
     session = SessionLocal()
 
     try:
+        # Only trigger for divergence patterns
+        if target.pattern not in ["BearishDivergencePattern", "BullishDivergencePattern"]:
+            return
+
         stock = session.query(Stock).filter(Stock.id == target.stock_id).first()
         if not stock:
             return
@@ -524,11 +533,11 @@ def create_alert_on_swingpoint_insert(mapper, connection, target):
             "id": str(uuid4()),
             "ticker": stock.Ticker,
             "time": str(datetime.now()),
-            "tag": target.pattern,
+            "tag": target.pattern,   # divergence pattern
             "peak": False,
-            "period": "30m",
+            "period": target.period if hasattr(target, "period") else "30m",
             "stock_id": target.stock_id,
-            "date": str(datetime.today().date())
+            "date": str(date.today())
         })
 
         session.commit()
@@ -538,3 +547,9 @@ def create_alert_on_swingpoint_insert(mapper, connection, target):
         raise e
     finally:
         session.close()
+
+
+# Attach listener
+event.listen(SwingPoints, "after_insert", create_alert_on_swingpoint_insert)
+
+

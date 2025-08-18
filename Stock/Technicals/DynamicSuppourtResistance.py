@@ -3,6 +3,7 @@ def CalculateSwingPoints(ticker, db, period):
     import pytz
     from sqlalchemy import types as satypes
     from Database.models import PriceData, SwingPoints, Stock
+    from datetime import datetime
 
     records = (
         db.query(PriceData)
@@ -100,7 +101,6 @@ def CalculateSwingPoints(ticker, db, period):
     bullish_divergence_pattern_idx = []
     bearish_divergence_pattern_idx = []
 
-    # Bullish divergences
     for curr_idx in swing_lows_all.index.unique():
         curr_positions = data.index.get_indexer_for([curr_idx])
         for curr_pos in curr_positions:
@@ -119,7 +119,6 @@ def CalculateSwingPoints(ticker, db, period):
                         bullish_divergence_pattern_idx.append(data.index[curr_pos])
                     break
 
-    # Bearish divergences
     for curr_idx in swing_highs_all.index.unique():
         curr_positions = data.index.get_indexer_for([curr_idx])
         for curr_pos in curr_positions:
@@ -138,14 +137,12 @@ def CalculateSwingPoints(ticker, db, period):
                         bearish_divergence_pattern_idx.append(data.index[curr_pos])
                     break
 
-    # --- Normalize for DB ---
-    col_type = SwingPoints.__table__.c.time.type  # sqlalchemy column type object
+    col_type = SwingPoints.__table__.c.time.type
 
     def normalize_for_db(ts):
         ts = pd.Timestamp(ts)
         if isinstance(col_type, satypes.Time):
             return ts.time()
-
         if isinstance(col_type, satypes.DateTime):
             if getattr(col_type, "timezone", False):
                 if ts.tzinfo is None:
@@ -157,41 +154,55 @@ def CalculateSwingPoints(ticker, db, period):
                 if ts.tzinfo is not None:
                     ts = ts.tz_convert('UTC').tz_localize(None)
                 return ts.to_pydatetime()
-
         return ts.to_pydatetime()
 
-    existing_raw = db.query(SwingPoints.time).filter(SwingPoints.stock_id == stock_id).all()
-    existing_times_raw = [r[0] for r in existing_raw]
-    existing_norm = set(normalize_for_db(t) for t in existing_times_raw)
+    # load existing SPs
+    existing_sps = db.query(SwingPoints).filter(SwingPoints.stock_id == stock_id).all()
+    existing_map = {normalize_for_db(sp.time): sp for sp in existing_sps}
 
     new_entries = []
 
-    def add_if_new(idx, pattern, tag):
+    def add_or_update(idx, pattern, tag):
         n = normalize_for_db(idx)
-        if n not in existing_norm:
-            new_entries.append(SwingPoints(pattern=pattern, time=n, period=period, tag=tag, stock_id=stock_id))
-            existing_norm.add(n)
+        if n in existing_map:
+            sp = existing_map[n]
+            ### UPDATED: upgrade if new pattern is stronger
+            priority = ["Weak", "BullishDivergence", "BearishDivergence",
+                        "BullishDivergencePattern", "BearishDivergencePattern"]
+            old_rank = priority.index(sp.pattern) if sp.pattern in priority else -1
+            new_rank = priority.index(pattern) if pattern in priority else -1
+            if new_rank > old_rank:  # stronger info
+                sp.pattern = pattern
+                sp.tag = tag
+                db.add(sp)
+        else:
+            sp = SwingPoints(
+                pattern=pattern,
+                time=n,
+                period=period,
+                tag=tag,
+                stock_id=stock_id
+            )
+            new_entries.append(sp)
+            existing_map[n] = sp
 
-    # Save swing lows/highs
     for idx in swing_lows_all.index:
-        add_if_new(idx, "Weak", "SwingLow")
+        add_or_update(idx, "Weak", "SwingLow")
     for idx in swing_highs_all.index:
-        add_if_new(idx, "Weak", "SwingHigh")
-
-    # Save divergences
+        add_or_update(idx, "Weak", "SwingHigh")
     for idx in all_bullish_divergence_idx:
-        add_if_new(idx, "BullishDivergence", "SwingLow")
+        add_or_update(idx, "BullishDivergence", "SwingLow")
     for idx in all_bearish_divergence_idx:
-        add_if_new(idx, "BearishDivergence", "SwingHigh")
-
-    # Save divergences with pattern
+        add_or_update(idx, "BearishDivergence", "SwingHigh")
     for idx in bullish_divergence_pattern_idx:
-        add_if_new(idx, "BullishDivergencePattern", "SwingLow")
+        add_or_update(idx, "BullishDivergencePattern", "SwingLow")
     for idx in bearish_divergence_pattern_idx:
-        add_if_new(idx, "BearishDivergencePattern", "SwingHigh")
+        add_or_update(idx, "BearishDivergencePattern", "SwingHigh")
 
     if new_entries:
         db.add_all(new_entries)
+
+    if new_entries:
         db.commit()
 
     swingpoints = {
