@@ -18,11 +18,13 @@ from Routers import StockRouters , ComparisonRouters , AdminRouter , TechnicalRo
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import event
 from Routers.UserAccountRoutes import  get_current_user
+from AIPrompts import Financial
 # from D.models import StockTechnicals  # or the model you want to listen to
 
 
  
 app = FastAPI()
+app.include_router(Financial.router)
 app.include_router(StockRouters.router)
 app.include_router(ComparisonRouters.router)
 app.include_router(AdminRouter.router)
