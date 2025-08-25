@@ -277,7 +277,7 @@ def replace_nan_with_none(obj):
 def get_all_screening_scores(
     db: Session = Depends(get_db),
 ):
-    stocks = db.query(Stock).filter(Stock.Ticker == "EASEMYTRIP").all()
+    stocks = db.query(Stock).all()
     results = []
     for stock in stocks:
         financial_score = calculate_financial_score(stock)
@@ -287,7 +287,7 @@ def get_all_screening_scores(
             "financial_score": financial_score,
             "technical_scores": technical_scores
         })
-        stock.FinancialScore = financial_score
+        stock.FinancialScore = float(financial_score)
         stock.TechnicalIntradayScore = technical_scores.get("1m", 0.0) 
         stock.TechnicalDailyScore = technical_scores.get("1d", 0.0)
         db.commit()

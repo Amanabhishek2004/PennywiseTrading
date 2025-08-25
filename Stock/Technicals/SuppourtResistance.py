@@ -1,3 +1,5 @@
+from datetime import datetime
+from dateutil import parser  # pip install python-dateutil
 from collections import namedtuple
 import numpy as np
 import pandas as pd
@@ -134,199 +136,208 @@ def UpdateSuppourt(Ticker, db, period):
         "Period": period,
     }
 
-def MakeStrongSupportResistance(ticker, db, period):
-    stock_data = db.query(Stock).filter(Stock.Ticker == ticker).first()
+from datetime import datetime
+
+def MakeStrongSupportResistance(ticker, db, period, prices, stock_data):
     if not stock_data:
         raise ValueError(f"Stock with ticker {ticker} not found in the database.")
 
-    # Get the current price
     current_price = stock_data.CurrentPrice  
 
-    # Fetch price data within the 10% range of the current price
-    Prices = db.query(PriceData).filter(
-    PriceData.stock_id == stock_data.id,
-    PriceData.period == period,
-    and_(
-        PriceData.close_price >= current_price * 0.9,  # Lower bound
-        PriceData.close_price <= current_price * 1.1   # Upper bound
-    )
-).order_by(PriceData.date.asc()).all() 
-    
-    if not Prices: 
-        return
+    # --- Parse last_updated properly ---
+    last_updated = None
+    if stock_data.updated:
+        if isinstance(stock_data.updated, datetime):
+            last_updated = stock_data.updated
+        else:
+            try:
+                last_updated = parser.parse(str(stock_data.updated))
+                print("[INFO] Parsed updated field:", last_updated)
+            except Exception:
+                print(f"[WARN] Failed to parse updated field: {stock_data.updated}")
 
+    # --- Base query ---
+    query = prices.filter(
+        PriceData.stock_id == stock_data.id,
+        PriceData.period == period,
+        PriceData.close_price >= current_price * 0.9,
+        PriceData.close_price <= current_price * 1.1,
+        PriceData.date >= stock_data.updated if stock_data.updated else "",
+    )
+
+    # --- Apply last_updated filter if available ---
+    Prices = query.order_by(PriceData.date.asc()).all()
+    print(f"[DEBUG] MakeStrong levels Loaded {len(Prices)} candles for {ticker} [{period}]")
+
+    if not Prices:
+        return {"message": "No new prices to process", "Ticker": ticker, "Period": period}
+
+    # --- Convert to DataFrame ---
     data = pd.DataFrame({
-        "Date": [price.date for price in Prices],
-        "Low": [price.low_price for price in Prices],
-        "High": [price.high_price for price in Prices],
-        "Close": [price.close_price for price in Prices]
+        "Date": [p.date for p in Prices],
+        "Low": [p.low_price for p in Prices],
+        "High": [p.high_price for p in Prices],
+        "Close": [p.close_price for p in Prices],
     })
 
-    if data.empty:  # Check if data is empty
-        raise ValueError(f"No valid data to process for ticker {ticker}.")
+    if data.empty:
+        return {"message": "Empty DataFrame after query", "Ticker": ticker, "Period": period}
 
-    # Apply rolling calculations and rounding
+    # Rolling min/max for support/resistance zones
     data["RoundedLow"] = data["Low"].rolling(window=10, min_periods=1).min()
     data["RoundedHigh"] = data["High"].rolling(window=10, min_periods=1).max()
 
     def conditional_round(price):
-        if pd.isna(price):  # Handle NaN values
+        if pd.isna(price):
             return None
         return round(price, 1) if price < 50 else round(price)
 
     data["RoundedLow"] = data["RoundedLow"].apply(conditional_round)
     data["RoundedHigh"] = data["RoundedHigh"].apply(conditional_round)
-
-    # Drop rows with NaN values in RoundedLow and RoundedHigh
     data.dropna(subset=["RoundedLow", "RoundedHigh"], inplace=True)
 
-    # Prepare support and resistance data with counts and dates
+    # Count levels
     suppourtdata = data[["RoundedLow"]].value_counts().reset_index()
     suppourtdata.columns = ["Low", "count_x"]
 
     resistancedata = data[["RoundedHigh"]].value_counts().reset_index()
     resistancedata.columns = ["High", "count_y"]
 
-    # Merge support and resistance data
     merged_data = suppourtdata.merge(
         resistancedata, how="inner", left_on="Low", right_on="High"
     )
-
-    # Combine counts and sort by their total occurrences
     merged_data["count"] = merged_data["count_x"] + merged_data["count_y"]
 
-    # Separate into support and resistance levels
-    supports = merged_data[
-        (merged_data["Low"] < current_price)
-    ].sort_values(by="count", ascending=False).head(4)
-    print(period , supports)
-    resistances = merged_data[
-        (merged_data["Low"] > current_price)
-    ].sort_values(by="count", ascending=False).head(4)
+    supports = merged_data[(merged_data["Low"] < current_price)].sort_values(
+        by="count", ascending=False
+    ).head(4)
 
-    # Combine support and resistance levels
+    resistances = merged_data[(merged_data["Low"] > current_price)].sort_values(
+        by="count", ascending=False
+    ).head(4)
+
     strong_levels = pd.concat([supports, resistances]).reset_index(drop=True)
 
-    # Create support and resistance entries in the database
+    # --- Insert/Update support/resistance in DB ---
     for _, row in strong_levels.iterrows():
         existing = db.query(SupportData).filter(
-            SupportData.Price == float(row["Low"])
+            SupportData.stock_id == stock_data.id,
+            SupportData.Price == float(row["Low"]),
+            SupportData.period == period,
+            SupportData.Pattern == "Strong Levels"
         ).first()
 
-        if existing : 
-              existing.retest = int(row["count"])
-              db.commit()
+        if existing:
+            existing.retests = int(row["count"])
+        else:
+            suppourt = SupportData(
+                stock_id=stock_data.id,
+                Price=float(row["Low"]),
+                period=period,
+                Pattern="Strong Levels",
+                retests=int(row["count"]),
+            )
+            db.add(suppourt)
+    print(strong_levels)
+    # ⚠️ Removed db.commit() → caller should commit at API/service layer
+    return {
+        "Ticker": ticker,
+        "Period": period,
+        "Levels": strong_levels.to_dict(orient="records"),
+    }
 
-        if not existing : 
-                suppourt = SupportData(
-                    stock_id=stock_data.id,
-                    Price=float(row["Low"]),  # Convert to native Python float
-                    period=period,
-                    Pattern="Strong Levels",
-                    retests=int(row["count"]),  # Convert to native Python int
-                )
-                db.add(suppourt)
 
-        db.commit()
-    db.commit()    
-def CreatepatternSuppourt(Ticker, db, period):
-    print("Running")
-    stock_data = db.query(Stock).filter(Stock.Ticker == Ticker).first()
+from datetime import datetime
+from sqlalchemy import cast, String, DateTime
+from datetime import datetime
+
+from dateutil import parser
+from sqlalchemy import func, cast, DateTime
+
+def CreatepatternSuppourt(Ticker, db, period, price_query, stock_data):
     if not stock_data:
         return {"error": "Stock not found"}
 
     current_price = stock_data.CurrentPrice
-    last_support = (
-        db.query(SupportData)
-        .filter(
-            SupportData.stock_id == stock_data.id,
-            SupportData.period == period,
-            SupportData.timestamp != None
-        )
-        .order_by(SupportData.timestamp.desc())
-        .first()
-    )
-    last_time = last_support.timestamp if last_support else None
-    print("last_time *****************************************************************************", last_time  )
-    price_query = db.query(PriceData).filter(
+
+    # --- Parse last_time properly ---
+
+    # --- Base query ---
+    price_query = price_query.filter(
         PriceData.stock_id == stock_data.id,
-        PriceData.period == period , 
-        and_(
-            PriceData.close_price >= current_price * 0.9,
-            PriceData.close_price <= current_price * 1.1
-        )
+        PriceData.period == period,
+        PriceData.close_price.between(current_price * 0.9, current_price * 1.1) , 
+        PriceData.date >= stock_data.updated if stock_data.updated else "",
     ).order_by(PriceData.date.asc())
 
-    if last_time:
-        price_query = price_query.filter(PriceData.date > last_time)
-
+    # --- Filter by last_updated safely ---
+       
     short_termprices = price_query.all()
+    print(f"[DEBUG] Loaded {len(short_termprices)} candles for {Ticker} [{period}]")
+    if not short_termprices:
+        return {
+            "message": "No new candles to process",
+            "Ticker": Ticker,
+            "Period": period
+        }
 
-   
-
+    # --- Identify patterns ---
     patterns = []
-    if short_termprices : 
-     for index, price in enumerate(short_termprices):
+    for idx, price in enumerate(short_termprices):
         data = IdentifySingleCandleStickPattern(price, period)
-        if not data and index > 0:
-            data = IdentifyDoubleCandleStickPatterns(
-                short_termprices[index - 1: index + 1],
-                period
-            )
+        if not data and idx > 0:
+            data = IdentifyDoubleCandleStickPatterns(short_termprices[idx-1:idx+1], period)
         if data:
             patterns.append(data)
 
+    # --- Bulk fetch existing patterns once ---
+    all_existing = db.query(SupportData).filter(
+        SupportData.stock_id == stock_data.id,
+        SupportData.period == period
+    ).all()
+    existing_map = {round(e.Price, 2): e for e in all_existing}
+
+    processed_levels = set()
+    new_patterns = []
+
     for data in patterns:
         price_level = data.get("Suppourt") or data.get("Resistance")
+        if not price_level or price_level in processed_levels:
+            continue
+        processed_levels.add(price_level)
+
         tolerance = 0.008 * price_level
-        pattern_type = "Suppourt" if "Suppourt" in data else "Resistance"
+        key = round(price_level, 2)
 
-        existing_pattern = db.query(SupportData).filter(
-            SupportData.stock_id == stock_data.id,
-            SupportData.period == period,
-            SupportData.Price >= price_level - tolerance,
-            SupportData.Price <= price_level + tolerance
-        ).first()
-
-        if existing_pattern:
-            existing_pattern.retests += 1
-            existing_pattern.Pattern = data["pattern"]
-            existing_pattern.timestamp = data["time"]
+        if key in existing_map and abs(existing_map[key].Price - price_level) <= tolerance:
+            existing_map[key].retests += 1
+            existing_map[key].Pattern = data["pattern"]
+            existing_map[key].timestamp = str(data["time"])
         else:
-            new_pattern = SupportData(
+            new_patterns.append(SupportData(
                 stock_id=stock_data.id,
                 Price=price_level,
                 period=period,
                 Pattern=data["pattern"],
-                timestamp=data["time"],
-                retests=1,
-            )
-            db.add(new_pattern)
-            db.commit()
+                timestamp=str(data["time"]),
+                retests=1
+            ))
 
-    db.commit()
+    if new_patterns:
+        db.bulk_save_objects(new_patterns)
 
-    support = (
-        db.query(SupportData)
-        .filter(
-            SupportData.stock_id == stock_data.id,
-            StockTechnicals.period == period , 
-            SupportData.Price < current_price,
-        )
-        .order_by(SupportData.Price.desc())
-        .first()
-    )
+    # --- Update StockTechnicals (support/resistance) ---
+    support = db.query(SupportData.Price, SupportData.Pattern, SupportData.timestamp).filter(
+        SupportData.stock_id == stock_data.id,
+        SupportData.period == period,
+        SupportData.Price < current_price
+    ).order_by(SupportData.Price.desc()).first()
 
-    resistance = (
-        db.query(SupportData)
-        .filter(
-            SupportData.stock_id == stock_data.id,
-            StockTechnicals.period == period , 
-            SupportData.Price > current_price,
-        )
-        .order_by(SupportData.Price.asc())
-        .first()
-    )
+    resistance = db.query(SupportData.Price, SupportData.Pattern, SupportData.timestamp).filter(
+        SupportData.stock_id == stock_data.id,
+        SupportData.period == period,
+        SupportData.Price > current_price
+    ).order_by(SupportData.Price.asc()).first()
 
     technical = db.query(StockTechnicals).filter(
         StockTechnicals.stock_id == stock_data.id,
@@ -337,37 +348,24 @@ def CreatepatternSuppourt(Ticker, db, period):
         technical.CurrentSupport = support.Price if support else None
         technical.CurrentResistance = resistance.Price if resistance else None
     else:
-        new_technical = StockTechnicals(
+        db.add(StockTechnicals(
             stock_id=stock_data.id,
             ticker=Ticker,
             period=period,
             CurrentSupport=support.Price if support else None,
             CurrentResistance=resistance.Price if resistance else None
-        )
-        db.add(new_technical)
-    print({
-        "Support": support.Price if support else None,
-        "Resistance": resistance.Price if resistance else None,
-        "Support_pattern": support.Pattern if support else None,
-        "Resistance_pattern": resistance.Pattern if resistance else None,
-        "Ticker": Ticker,
-        "Support_time": support.timestamp if support else None,
-        "Resistance_time": resistance.timestamp if resistance else None,
-        "Period": period,
-    }
-)
-    db.commit() 
+        ))
 
+    # ⚠️ Removed db.commit() → should be committed outside at API level
     return {
         "Support": support.Price if support else None,
         "Resistance": resistance.Price if resistance else None,
         "Support_pattern": support.Pattern if support else None,
         "Resistance_pattern": resistance.Pattern if resistance else None,
         "Ticker": Ticker,
-        "Support_time": support.timestamp if support else None,
-        "Resistance_time": resistance.timestamp if resistance else None,
         "Period": period,
     }
+
 
 
 def IdentifySingleCandleStickPattern(price, period):

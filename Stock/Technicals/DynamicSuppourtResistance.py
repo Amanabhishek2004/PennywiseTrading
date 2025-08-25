@@ -1,10 +1,11 @@
 def CalculateSwingPoints(ticker, db, period):
     import pandas as pd
-    import pytz
+    import numpy as np
     from sqlalchemy import types as satypes
     from Database.models import PriceData, SwingPoints, Stock
-    from datetime import datetime
+    from sklearn.linear_model import LinearRegression
 
+    # --- Load price records ---
     records = (
         db.query(PriceData)
         .filter(PriceData.ticker == ticker, PriceData.period == period)
@@ -19,6 +20,7 @@ def CalculateSwingPoints(ticker, db, period):
     if not stock_id:
         return None, None
 
+    # --- Build DataFrame ---
     data = pd.DataFrame([{
         "Open": r.open_price,
         "High": r.high_price,
@@ -31,6 +33,7 @@ def CalculateSwingPoints(ticker, db, period):
     data.set_index("Date", inplace=True)
     data = data.dropna(subset=['Open', 'High', 'Low', 'Close'])
 
+    # --- Swing detection ---
     window = 10
     is_min = (data['Low'] == data['Low'].rolling(window * 2).min())
     is_max = (data['High'] == data['High'].rolling(window * 2).max())
@@ -84,61 +87,58 @@ def CalculateSwingPoints(ticker, db, period):
         else:
             return None
 
+    # Apply pattern detection
     pattern_type = [None]
     for i in range(1, len(data)):
         pattern_type.append(detect_candle_pattern(data.iloc[i], data.iloc[i - 1]))
     data['Pattern'] = pattern_type
 
-    # --- Swing points detection ---
+    # --- Swing points ---
     swing_lows_all = data[is_min & (data['RSI20'] < 35)]
     swing_highs_all = data[is_max & (data['RSI20'] > 70)]
     swing_lows_pattern = swing_lows_all[swing_lows_all['Pattern'] == 'bullish']
     swing_highs_pattern = swing_highs_all[swing_highs_all['Pattern'] == 'bearish']
 
-    # --- Divergences ---
+    # --- Divergence detection using regression slopes ---
     all_bullish_divergence_idx = []
     all_bearish_divergence_idx = []
-    bullish_divergence_pattern_idx = []
-    bearish_divergence_pattern_idx = []
 
-    for curr_idx in swing_lows_all.index.unique():
-        curr_positions = data.index.get_indexer_for([curr_idx])
-        for curr_pos in curr_positions:
-            curr_close = data.iloc[curr_pos]['Close']
-            curr_rsi = data.iloc[curr_pos]['RSI20']
-            curr_pattern = data.iloc[curr_pos]['Pattern']
-            for j in range(1, window + 1):
-                prev_pos = curr_pos - j
-                if prev_pos < 0:
-                    break
-                prev_close = data.iloc[prev_pos]['Close']
-                prev_rsi = data.iloc[prev_pos]['RSI20']
-                if curr_close < prev_close and curr_rsi > prev_rsi:
-                    all_bullish_divergence_idx.append(data.index[curr_pos])
-                    if curr_pattern == "bullish":
-                        bullish_divergence_pattern_idx.append(data.index[curr_pos])
-                    break
+    for curr_idx in swing_lows_all.index:
+        curr_pos = data.index.get_loc(curr_idx)
+        if curr_pos < window:
+            continue
+        prev_indices = data.index[curr_pos-window:curr_pos]
+        price_window = data.loc[prev_indices, 'Close'].values.reshape(-1, 1)
+        rsi_window = data.loc[prev_indices, 'RSI20'].values.reshape(-1, 1)
+        x = np.arange(window).reshape(-1, 1)
 
-    for curr_idx in swing_highs_all.index.unique():
-        curr_positions = data.index.get_indexer_for([curr_idx])
-        for curr_pos in curr_positions:
-            curr_close = data.iloc[curr_pos]['Close']
-            curr_rsi = data.iloc[curr_pos]['RSI20']
-            curr_pattern = data.iloc[curr_pos]['Pattern']
-            for j in range(1, window + 1):
-                prev_pos = curr_pos - j
-                if prev_pos < 0:
-                    break
-                prev_close = data.iloc[prev_pos]['Close']
-                prev_rsi = data.iloc[prev_pos]['RSI20']
-                if curr_close > prev_close and curr_rsi < prev_rsi:
-                    all_bearish_divergence_idx.append(data.index[curr_pos])
-                    if curr_pattern == "bearish":
-                        bearish_divergence_pattern_idx.append(data.index[curr_pos])
-                    break
+        price_slope = LinearRegression().fit(x, price_window).coef_[0][0]
+        rsi_slope = LinearRegression().fit(x, rsi_window).coef_[0][0]
 
+        if price_slope < 0 and rsi_slope > 0:  # bullish divergence
+            all_bullish_divergence_idx.append(curr_idx)
+
+    for curr_idx in swing_highs_all.index:
+        curr_pos = data.index.get_loc(curr_idx)
+        if curr_pos < window:
+            continue
+        prev_indices = data.index[curr_pos-window:curr_pos]
+        price_window = data.loc[prev_indices, 'Close'].values.reshape(-1, 1)
+        rsi_window = data.loc[prev_indices, 'RSI20'].values.reshape(-1, 1)
+        x = np.arange(window).reshape(-1, 1)
+
+        price_slope = LinearRegression().fit(x, price_window).coef_[0][0]
+        rsi_slope = LinearRegression().fit(x, rsi_window).coef_[0][0]
+
+        if price_slope > 0 and rsi_slope < 0:  # bearish divergence
+            all_bearish_divergence_idx.append(curr_idx)
+
+    # --- Pattern confirmed vs not ---
+    bullish_divergence_pattern_idx = list(set(all_bullish_divergence_idx) & set(swing_lows_pattern.index))
+    bearish_divergence_pattern_idx = list(set(all_bearish_divergence_idx) & set(swing_highs_pattern.index))
+
+    # --- Save to DB (same logic as before) ---
     col_type = SwingPoints.__table__.c.time.type
-
     def normalize_for_db(ts):
         ts = pd.Timestamp(ts)
         if isinstance(col_type, satypes.Time):
@@ -156,22 +156,19 @@ def CalculateSwingPoints(ticker, db, period):
                 return ts.to_pydatetime()
         return ts.to_pydatetime()
 
-    # load existing SPs
     existing_sps = db.query(SwingPoints).filter(SwingPoints.stock_id == stock_id).all()
     existing_map = {normalize_for_db(sp.time): sp for sp in existing_sps}
 
     new_entries = []
-
     def add_or_update(idx, pattern, tag):
         n = normalize_for_db(idx)
         if n in existing_map:
             sp = existing_map[n]
-            ### UPDATED: upgrade if new pattern is stronger
             priority = ["Weak", "BullishDivergence", "BearishDivergence",
                         "BullishDivergencePattern", "BearishDivergencePattern"]
             old_rank = priority.index(sp.pattern) if sp.pattern in priority else -1
             new_rank = priority.index(pattern) if pattern in priority else -1
-            if new_rank > old_rank:  # stronger info
+            if new_rank > old_rank:
                 sp.pattern = pattern
                 sp.tag = tag
                 db.add(sp)
@@ -201,8 +198,6 @@ def CalculateSwingPoints(ticker, db, period):
 
     if new_entries:
         db.add_all(new_entries)
-
-    if new_entries:
         db.commit()
 
     swingpoints = {

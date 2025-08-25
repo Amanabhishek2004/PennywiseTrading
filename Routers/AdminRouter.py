@@ -20,10 +20,9 @@ from Stock.Fundametals.StockForwardRatios import  *
 
 
 
-router = APIRouter(prefix="/Admin", tags=["Admin"]   , dependencies= [Depends(verify_premium_access)])
+router = APIRouter(prefix="/Admin", tags=["Admin"]   , 
+                   dependencies= [Depends(verify_premium_access)])
 
-
-# Assume get_db, Base, engine, and your models (Stock, EarningMetric, etc.) are already defined elsewhere
 
 
 def get_scalar(val, ticker):
@@ -360,7 +359,7 @@ import vectorbt as vbt
 
 # --- Helper function to normalize datetime strings ---
 def normalize_datetime_string(dt_str: str) -> str:
-    """Convert '2025-08-12 15:25:00+00' → '2025-08-12T15:25:00+0000' for safe parsing."""
+
     s = str(dt_str).strip()
     if " " in s and "+" in s:
         date_part, tz_part = s.rsplit("+", 1)
@@ -370,12 +369,10 @@ def normalize_datetime_string(dt_str: str) -> str:
         s = date_part.replace(" ", "T") + "+" + tz_part
     return s
 
-# @router.patch("/update_single/{ticker}")
-DATE_FORMAT = "%Y-%m-%d %H:%M:%S"  # match your DB string format
+
+DATE_FORMAT = "%Y-%m-%d %H:%M:%S"  
 
 
-
-@router.patch("/update_single/{ticker}")
 def update_single_ticker_supabase(ticker: str):
     # 1. Fetch stock from Supabase
     stock_data = supabase.table("Stocks").select("*").eq("Ticker", ticker).single().execute()
@@ -383,23 +380,23 @@ def update_single_ticker_supabase(ticker: str):
         return {"detail": f"Ticker {ticker} not found."}
     stock = stock_data.data
 
-    # 2. Determine update window
-    safe_time_str = normalize_datetime_string(stock["updated"])
+    safe_time_str = normalize_datetime_string(stock.get("updated", None))
     updated_time = pd.Timestamp(safe_time_str) if safe_time_str else None
-    start_dt = updated_time if updated_time else datetime.now(timezone.utc) - timedelta(days=9)
+     
+    # 2. Determine time window
+    start_dt = updated_time if updated_time is not None else datetime.now(timezone.utc) - timedelta(days=9)
     raw_end_dt = start_dt + timedelta(days=9)
-    now = datetime.now(timezone.utc)
-    end_dt = min(raw_end_dt, now)
+    if raw_end_dt.tzinfo is None:
+        raw_end_dt = raw_end_dt.replace(tzinfo=timezone.utc)
 
     # 3. Fetch Yahoo Finance data
     stock_yf = yf.Ticker(f"{ticker}.NS")
     data_daily = stock_yf.history(period="10y", interval="1d")
     data_min = stock_yf.history(start=start_dt.date(), end=raw_end_dt.date(), interval="5m")
 
-    # 4. Merge with last 14 from DB
+    # 4. Merge with last 14 rows from DB
     prev_daily = fetch_last_14_supabase(ticker, "1d")
     prev_min = fetch_last_14_supabase(ticker, "1m")
-
     if not prev_daily.empty:
         data_daily = pd.concat([prev_daily, data_daily]).drop_duplicates(keep="last")
     if not prev_min.empty:
@@ -415,29 +412,25 @@ def update_single_ticker_supabase(ticker: str):
         data_min['OBV'] = vbt.OBV.run(data_min['Close'], data_min['Volume']).obv
         data_min = data_min.dropna()
 
-    # 6. Filter only new rows after last updated
-    if updated_time:
-        updated_time = updated_time.tz_localize(None) if updated_time.tzinfo else updated_time
+    # 6. Filter by last updated time
+    if updated_time is not None:
+        updated_time = updated_time.tz_localize("UTC") if updated_time.tzinfo is None else updated_time.tz_convert("UTC")
         for df in [data_daily, data_min]:
-            if not isinstance(df.index, pd.DatetimeIndex):
-                df.index = pd.to_datetime(df.index)
-            if df.index.tz is not None:
-                df.index = df.index.tz_localize(None)
+            if isinstance(df.index, pd.DatetimeIndex):
+                df.index = df.index.tz_localize("UTC") if df.index.tz is None else df.index.tz_convert("UTC")
+        print(f"Filtering data after {updated_time}")
         data_daily = data_daily[data_daily.index > updated_time]
         data_min = data_min[data_min.index > updated_time]
 
-    # 7. Prepare upsert payload
-    price_rows = []
 
     def build_rows(df, period):
         rows = []
         for date, row in df.iterrows():
-            date_str = date.isoformat().replace("T", " ")
             rows.append({
                 "id": str(uuid4()),
                 "stock_id": stock["id"],
                 "ticker": ticker,
-                "date": date_str,
+                "date": date.isoformat().replace("T", " "),
                 "open_price": float(row["Open"]),
                 "high_price": float(row["High"]),
                 "low_price": float(row["Low"]),
@@ -449,17 +442,19 @@ def update_single_ticker_supabase(ticker: str):
             })
         return rows
 
+    price_rows = []
     price_rows.extend(build_rows(data_daily, "1d"))
     price_rows.extend(build_rows(data_min, "1m"))
 
-    # 8. Upsert in one call
+    # 8. Upsert once
     if price_rows:
+        print(f"Upserting {len(price_rows)} rows for {ticker}")
         supabase.table("PriceData").upsert(price_rows, on_conflict="ticker,date,period").execute()
 
-    # 9. Update Stocks.updated
-    supabase.table("Stocks").update({"updated": end_dt.isoformat()}).eq("id", stock["id"]).execute()
-
-    # 10. Calculate percent change
+    # 9. Update Stocks.updated with latest 1m candle
+    last_1m_time = data_min.index[-1] if not data_min.empty else None
+    
+    # 10. Fetch last close and current price
     last_close_row = supabase.table("PriceData") \
         .select("close_price") \
         .eq("ticker", ticker) \
@@ -472,25 +467,27 @@ def update_single_ticker_supabase(ticker: str):
     current_price_row = supabase.table("PriceData") \
         .select("close_price") \
         .eq("ticker", ticker) \
-        .eq("period", "1m") \
+        .eq("period", "1d") \
         .order("date", desc=True) \
         .limit(1) \
         .execute()
+       
     current_price = current_price_row.data[0]["close_price"] if current_price_row.data else None
 
-    percent_change = 100 * (current_price - last_close) / last_close if last_close else None
-
-    supabase.table("Stocks").update({"pctChange": round(percent_change, 2) if percent_change else None}) \
-        .eq("id", stock["id"]).execute()
+    if current_price is not None:
+          supabase.table("Stocks").update({"CurrentPrice": float(float(current_price)) , 
+                                           "marketCap":float(float(current_price) * stock.get("sharesOutstanding", 0))
+                                           }).eq("Ticker", ticker).execute()
 
     return {
-        "detail": f"{ticker} updated successfully.",
-        "latest_price": current_price,
-        "percent_change": round(percent_change, 2) if percent_change else None
+        "ticker": ticker,
+        "inserted_rows": len(price_rows),
+        "last_updated": str(last_1m_time) if last_1m_time else None,
+        "last_close": last_close,
+        "current_price": current_price
     }
 
-
-
+        
 
 from sqlalchemy.sql import exists
 
@@ -513,35 +510,62 @@ def update_date_changer(db: Session = Depends(get_db)):
     return {"detail": "Date changer updated successfully."}          
 
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-@router.patch("/UpdateAllData/{ticker}" , response_model = dict)
-def UpdateAllTechnicaldata(ticker ,db: Session = Depends(get_db) , timeinterval : int = 20 , current_user: User = Depends(get_current_user) ) :
-    #   datetime
-    # stocks = db.query(Stock).all()[:]
-        stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-        # update  the current price as well  
-        pricingdata = update_single_ticker_supabase(ticker)
-        
-        c1 = CreateVolumeChannel( stock.Ticker , period="1m")
-        c2 = CreateVolumeChannel( stock.Ticker , period="1d") 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import traceback
 
+@router.patch("/UpdateAllData/{ticker}", response_model=dict)
+def UpdateAllTechnicaldata(
+    ticker: str,
+    db: Session = Depends(get_db),
+    timeinterval: int = 20,
+    current_user: User = Depends(get_current_user)
+):
+    stock = db.query(Stock.id, Stock.Ticker, Stock.updated, Stock.CurrentPrice).filter(
+        Stock.Ticker == ticker
+    ).first()
 
-        data_1d = MakeStrongSupportResistance(stock.Ticker , db , period = "1d" )
-        data_1m = MakeStrongSupportResistance(stock.Ticker , db , period = "1m")
-        
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock not found")
 
-        data_1d = CreatepatternSuppourt(stock.Ticker , db , period = "1d" )
-        data_1m = CreatepatternSuppourt(stock.Ticker , db , period = "1m")
+    # Update pricing first (should be done synchronously)
+    pricingdata = update_single_ticker_supabase(ticker)
+
+    # Pre-fetch price data
+    price_data_1m = db.query(PriceData).filter(
+        PriceData.ticker == ticker, PriceData.period == "1m"
+    ).order_by(PriceData.date.desc())
+
+    price_data_1d = db.query(PriceData).filter(
+        PriceData.ticker == ticker, PriceData.period == "1d"
+    ).order_by(PriceData.date.desc())
+
+    # Define tasks
+   
+    CreateVolumeChannel(stock.Ticker, price_data_1m, period="1m")
+    CreateVolumeChannel(stock.Ticker, price_data_1d, period="1d")
+    MakeStrongSupportResistance(stock.Ticker, db, "1d", price_data_1d, stock)
+    MakeStrongSupportResistance(stock.Ticker, db, "1m", price_data_1m, stock)
+    CreatepatternSuppourt(stock.Ticker, db, "1d", price_data_1d, stock)
+    CreatepatternSuppourt(stock.Ticker, db, "1m", price_data_1m, stock)
+    CreateChannel(db, stock.Ticker, timeinterval, "1m", price_data_1m)
+    CreateChannel(db, stock.Ticker, timeinterval, "1d", price_data_1d)
+    CalculateRSI(stock.Ticker, db, "1m", price_data_1m)
+    CalculateRSI(stock.Ticker, db, "1d", price_data_1d)
+
+    if pricingdata["last_updated"] : 
+       db.query(Stock).filter(Stock.Ticker == ticker).update(
+        {"updated": pricingdata["last_updated"]}
+    )
+    db.commit()
  
-        channeldata = CreateChannel(db, stock.Ticker,timeinterval ,period="1m")             
-        channeldata = CreateChannel(db, stock.Ticker,timeinterval ,period="1d")             
+    return {
+        "message": "Data updated successfully",
+        "ticker": ticker,
+        "pricing": pricingdata,
+    }
 
-
-        Rsidata = CalculateRSI( stock.Ticker,db , period = "1m")
-        Rsidata = CalculateRSI( stock.Ticker,db , period = "1d")
-
-
-        return pricingdata
 
 
 

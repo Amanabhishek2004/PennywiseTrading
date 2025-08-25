@@ -85,8 +85,6 @@ def GetPeers(request: PeersRequest,
             CalculateRSI( stock,db , period = "1d")
 
         # CREATE LEVELS  
-
-
             MakeStrongSupportResistance(stock , db , "1m")
             MakeStrongSupportResistance(stock , db , "1d")
 

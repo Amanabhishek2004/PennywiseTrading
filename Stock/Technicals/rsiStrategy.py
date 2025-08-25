@@ -30,80 +30,72 @@ import numpy as np
 
 
 
-def CalculateRSI(ticker, db, period):
-        # Fetch stock data 
-        from Database.models import  Stock , StockTechnicals , Channel , PriceData          
-        print("running")
-        stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-        if not stock:
-            print(f"No stock named {ticker}")
-            return
+def CalculateRSI(ticker, db, period, price_data):
+    from Database.models import Stock, StockTechnicals, PriceData
+    import pandas as pd
 
-        # Fetch price data based on the period
-        price_query = (
-            db.query(PriceData)
-            .filter(
-                PriceData.stock_id == stock.id,
-                PriceData.period == period
-            )
-            .order_by(PriceData.date.asc())
-            .all()
-)
-        prices = pd.Series([price.close_price for price in price_query])
-        rsi_values = pd.Series([price.RSI for price in price_query])
-        if len(prices) < 14:
-            print("Not enough data to calculate RSI.")
-            return
-        print(rsi_values)   
-        # Calculate RSI
-        current_rsi = rsi_values.iloc[-1]
-        if pd.isna(current_rsi):
-            print("Unable to calculate RSI for the latest period.")
-            return
+    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    if not stock:
+        print(f"No stock named {ticker}")
+        return
 
-        # Determine trendline and region
-        valid_rsi = rsi_values[-20:]
-        if len(valid_rsi) < 2:
-            print("Not enough data to calculate RSI trendline.")
-            return
+    price_query = (
+        price_data
+        .filter(
+            PriceData.stock_id == stock.id,
+            PriceData.period == period
+        )
+        .order_by(PriceData.date.desc())
+        .all()
+    )
 
-        trendline , m , b  = CreateTrendline(valid_rsi)
+    prices = pd.Series([p.close_price for p in price_query])
+    rsi_values = pd.Series([p.RSI for p in price_query])
+    
+    if len(prices) < 14:
+        print("Not enough data to calculate RSI.")
+        return
+      
+    current_rsi = float(rsi_values.iloc[0])
+    if pd.isna(current_rsi):
+        print("Unable to calculate RSI for the latest period.")
+        return
 
+    valid_rsi = rsi_values[:21]
+    if len(valid_rsi) < 2:
+        print("Not enough data to calculate RSI trendline.")
+        return
+    
+    trendline, m, b = CreateTrendline(valid_rsi)
 
-        # Current RSI as scalar
-        current_rsi = float(rsi_values.iloc[-1])
+    technical = db.query(StockTechnicals).filter(
+        StockTechnicals.stock_id == stock.id,
+        StockTechnicals.period == period
+    ).first()
 
-        # Trendline comparison
-        comparison_value = b + m * (len(valid_rsi) - 1)
+    if technical:
+        technical.RsiSlope = float(m)
+        technical.Rsiintercept = float(b)
+        technical.CurrentRsi = current_rsi
+    else:
+        technical = StockTechnicals(
+            stock_id=stock.id,
+            ticker=ticker,
+            period=period,
+            RsiSlope=float(m),
+            Rsiintercept=float(b),
+            CurrentRsi=current_rsi
+        )
+        db.add(technical)
 
-        # Update or create the StockTechnicals entry in the database
-        technical = db.query(StockTechnicals).filter(
-            StockTechnicals.period == period, 
-            StockTechnicals.ticker == ticker
-        ).first()
+    db.commit()
 
-        if technical:
-            technical.RsiSlope = float(m)
-            technical.Rsiintercept = float(b)
-            technical.CurrentRsi = float(current_rsi)
-        else:
-            technical = StockTechnicals(
-                stock_id=stock.id,
-                ticker=ticker,
-                period=period,
-                RsiSlope=float(m),
-                Rsiintercept=float(b),
-                CurrentRsi=float(current_rsi)
-            )
-            db.add(technical)
+    return {
+        "Current RSI": current_rsi,
+        "Trend Slope": m,
+        "Intercept": b,
+    }
 
-        db.commit()
-
-        return {
-            "Current RSI": current_rsi,
-            "Trend Slope": m,
-            "Intercept": b,
-        }
 
     # except Exception as e:
     #     print(f"Error calculating RSI: {e}")
@@ -113,42 +105,46 @@ def CalculateRSI(ticker, db, period):
 
 from datetime import datetime, timedelta, timezone
 
-def CalculateRSIpeakMaxmin(db, close_price, currentrsi, ticker, period, interval=30):
+def CalculateRSIpeakMaxmin(db, close_price, currentrsi, ticker, period, interval=30 , price_query = None):
     from Database.models import PriceData, Stock
 
-    # Get the stock object
-    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
-    if not stock:
+    stock_id = db.query(Stock.id).filter(Stock.Ticker == ticker).scalar()
+    if not stock_id:
         print(f"No stock found for ticker {ticker}")
         return False, False
 
-    # Get the last PriceData instance for this stock and period
-    last_price = (
-        db.query(PriceData)
-        .filter(PriceData.stock_id == stock.id, PriceData.period == period)
+    # Get last N records subquery
+    subquery = (
+        price_query
+        .filter(PriceData.stock_id == stock_id, PriceData.period == period)
         .order_by(PriceData.date.desc())
-        .first()
-    )
-    if not last_price:
-        print("No price data found.")
-        return False, False
-
-
-    # Query RSI data within the interval
-    data_last_30 = (
-        db.query(PriceData)
-        .filter(PriceData.stock_id == stock.id, PriceData.period == period)
-        .order_by(PriceData.date.desc())
-        .limit(30)
-        .all()
+        .limit(interval)
+        .subquery()
     )
 
-    # Example divergence logic (customize as needed)
-    data_min = [d for d in data_last_30 if d.close_price <= close_price and d.RSI < currentrsi]
-    data_max = [d for d in data_last_30 if d.close_price >= close_price and d.RSI > currentrsi]
+    # Check if any min condition exists
+    data_min_exists = (
+        db.query(PriceData.id)
+        .filter(
+            PriceData.id.in_(subquery),
+            PriceData.close_price <= close_price,
+            PriceData.RSI < currentrsi
+        )
+        .first() is not None
+    )
 
+    # Check if any max condition exists
+    data_max_exists = (
+        db.query(PriceData.id)
+        .filter(
+            PriceData.id.in_(subquery),
+            PriceData.close_price >= close_price,
+            PriceData.RSI > currentrsi
+        )
+        .first() is not None
+    )
 
-    return len(data_max) != 0, len(data_min) != 0 
+    return data_max_exists, data_min_exists
 
 
 

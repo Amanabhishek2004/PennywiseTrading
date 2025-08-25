@@ -1,4 +1,4 @@
-from Database.models import Stock, StockTechnicals, EarningMetric, Comparables , SupportData
+from Database.models import Stock, StockTechnicals , SupportData , StockFinancialScore
 import numpy as np 
 def convert_to_list(data_string):
     if data_string is None:
@@ -29,129 +29,174 @@ def convert_to_list(data_string):
 
 import numpy as np
 
-def calculate_financial_score(stock: Stock):
+def create_financial_score(stock: Stock, db):
     """
-    Calculate a financial score using all available fields from EarningMetric and Comparables.
-    Caps all metric contributions to avoid extreme scores.
+    Compute detailed financial scores for each metric and insert into StockFinancialScore table.
     """
-    score = 0
-    
-    def clamp(value, min_val, max_val):
-        return max(min_val, min(value, max_val))
-    
-    # Use Comparables (Ratios)
+
+    scores = {}
+    total_score = 0
+
+    # ========== Comparables ==========
     if stock.comparables:
         ratios = stock.comparables[0]
-        
-        if ratios.trailingPE is not None:
-            score += clamp((20 - min(ratios.trailingPE, 20)) * 10, -50, 50)
-        
-        if ratios.forwardPE is not None and ratios.trailingPE is not None:
-            score += clamp((ratios.trailingPE - ratios.forwardPE) * 10, -50, 50)
-        
-        if ratios.peg is not None:
-            score += clamp((1 - ratios.peg) * 100, -50, 50)
-        
-        if ratios.EVEBITDA is not None:
-            score += clamp((10 - ratios.EVEBITDA) * 10, -50, 50)
-        
-        if ratios.medianpe is not None and ratios.trailingPE is not None:
-            score += clamp((ratios.medianpe - ratios.trailingPE) * 10, -50, 50)
-        
-        if ratios.pricetoSales is not None:
-            score += clamp((20 - ratios.pricetoSales) * 10, -50, 50)
-        
-        if ratios.pricetoFreeCashFlow is not None:
-            score += clamp((10 - ratios.pricetoFreeCashFlow) * 10, -50, 50)
-        
-        if ratios.FCFF_Yield is not None:
-            score += clamp(ratios.FCFF_Yield * 100, -50, 50)
-        
-        if ratios.CurrentRatio is not None:
-            score += clamp((3 - ratios.CurrentRatio) * 10, -10, 10)
-        
-        if ratios.DebttoEquity is not None:
-            score += clamp((1 - ratios.DebttoEquity) * 10, -50, 50)
-        
-        # Growth metrics (higher is better)
-        for growth_metric in [
-            ratios.Avg_Sales_QoQ_Growth_Percent,
-            ratios.Avg_NetProfit_QoQ_Growth_Percent,
-            ratios.Avg_OperatingProfit_QoQ_Growth_Percent,
-            ratios.Avg_EPS_QoQ_Growth_Percent
-        ]:
-            if growth_metric is not None:
-                score += clamp(growth_metric, -50, 50)
 
-    # Use EarningMetric
+        if ratios.trailingPE is not None:
+            scores["trailingPE_score"] = clamp((20 - min(ratios.trailingPE, 20)) * 10, -50, 50)
+
+        if ratios.forwardPE is not None and ratios.trailingPE is not None:
+            scores["forwardPE_score"] = clamp((ratios.trailingPE - ratios.forwardPE) * 10, -50, 50)
+
+        if ratios.peg is not None:
+            scores["peg_score"] = clamp((1 - ratios.peg) * 100, -50, 50)
+
+        if ratios.EVEBITDA is not None:
+            scores["EVEBITDA_score"] = clamp((10 - ratios.EVEBITDA) * 10, -50, 50)
+
+        if ratios.medianpe is not None and ratios.trailingPE is not None:
+            scores["medianpe_score"] = clamp((ratios.medianpe - ratios.trailingPE) * 10, -50, 50)
+
+        if ratios.pricetoSales is not None:
+            scores["pricetoSales_score"] = clamp((20 - ratios.pricetoSales) * 10, -50, 50)
+
+        if ratios.pricetoFreeCashFlow is not None:
+            scores["pricetoFreeCashFlow_score"] = clamp((10 - ratios.pricetoFreeCashFlow) * 10, -50, 50)
+
+        if ratios.FCFF_Yield is not None:
+            scores["FCFF_Yield_score"] = clamp(ratios.FCFF_Yield * 100, -50, 50)
+
+        if ratios.CurrentRatio is not None:
+            scores["CurrentRatio_score"] = clamp((3 - ratios.CurrentRatio) * 10, -10, 10)
+
+        if ratios.DebttoEquity is not None:
+            scores["DebttoEquity_score"] = clamp((1 - ratios.DebttoEquity) * 10, -50, 50)
+
+        # Growth metrics
+        if ratios.Avg_Sales_QoQ_Growth_Percent is not None:
+            scores["Avg_Sales_QoQ_Growth_Percent_score"] = clamp(ratios.Avg_Sales_QoQ_Growth_Percent, -50, 50)
+
+        if ratios.Avg_NetProfit_QoQ_Growth_Percent is not None:
+            scores["Avg_NetProfit_QoQ_Growth_Percent_score"] = clamp(ratios.Avg_NetProfit_QoQ_Growth_Percent, -50, 50)
+
+        if ratios.Avg_OperatingProfit_QoQ_Growth_Percent is not None:
+            scores["Avg_OperatingProfit_QoQ_Growth_Percent_score"] = clamp(ratios.Avg_OperatingProfit_QoQ_Growth_Percent, -50, 50)
+
+        if ratios.Avg_EPS_QoQ_Growth_Percent is not None:
+            scores["Avg_EPS_QoQ_Growth_Percent_score"] = clamp(ratios.Avg_EPS_QoQ_Growth_Percent, -50, 50)
+
+    # ========== Earning Metrics ==========
     if stock.earning_metrics:
         em = stock.earning_metrics[0]
-        
-        for cagr in [
-            em.EBIT_cagr, em.EBITDA_cagr,
-            em.OperatingRevenue_Cagr, em.NetIncome_cagr,
-            em.FCFF_Cagr
-        ]:
-            if cagr is not None:
-                score += clamp(cagr * 100, -50, 50)
-        
+
+        if em.EBIT_cagr is not None:
+            scores["EBIT_cagr_score"] = clamp(em.EBIT_cagr * 100, -50, 50)
+
+        if em.EBITDA_cagr is not None:
+            scores["EBITDA_cagr_score"] = clamp(em.EBITDA_cagr * 100, -50, 50)
+
+        if em.OperatingRevenue_Cagr is not None:
+            scores["OperatingRevenue_Cagr_score"] = clamp(em.OperatingRevenue_Cagr * 100, -50, 50)
+
+        if em.NetIncome_cagr is not None:
+            scores["NetIncome_cagr_score"] = clamp(em.NetIncome_cagr * 100, -50, 50)
+
+        if em.FCFF_Cagr is not None:
+            scores["FCFF_Cagr_score"] = clamp(em.FCFF_Cagr * 100, -50, 50)
+
         try:
             if em.operatingMargins is not None:
-                score += clamp(float(em.operatingMargins) * 100, -10, 10)
+                scores["operatingMargins_score"] = clamp(float(em.operatingMargins) * 100, -10, 10)
         except:
             pass
-        
+
         try:
             if em.epsTrailingTwelveMonths is not None:
-                score += clamp(float(em.epsTrailingTwelveMonths), -10, 10)
+                scores["epsTrailingTwelveMonths_score"] = clamp(float(em.epsTrailingTwelveMonths), -10, 10)
         except:
             pass
-        
-        if em.epsForward is not None:
-            score += clamp(em.epsForward, -10, 10)
 
-    # Use Valuation Metrics
+        if em.epsForward is not None:
+            scores["epsForward_score"] = clamp(em.epsForward, -10, 10)
+
+    # ========== Valuation Metrics ==========
     if stock.metrics:
-        vl = stock.metrics[0]    
-        
+        vl = stock.metrics[0]
+
         if vl.ROE is not None:
-            score += clamp(vl.ROE * 100, -50, 50)
-        
+            scores["ROE_score"] = clamp(vl.ROE * 100, -50, 50)
+
         if vl.ROA is not None:
-            score += clamp(vl.ROA * 100, -50, 50)
-        
+            scores["ROA_score"] = clamp(vl.ROA * 100, -50, 50)
+
         if vl.ROIC is not None and vl.WACC is not None:
             roic_list = convert_to_list(vl.ROIC)
             if roic_list:
                 median_roic = np.nanmedian(roic_list)
                 if not np.isnan(median_roic):
-                    score += clamp((median_roic - vl.WACC) * 100, -50, 50)
-        
+                    scores["ROIC_score"] = clamp(median_roic * 100, -50, 50)
+                    scores["WACC_score"] = clamp(vl.WACC * 100, -50, 50)
+
         if vl.COD is not None:
-            score -= clamp(vl.COD * 100, -50, 50)
-        
+            scores["COD_score"] = -clamp(vl.COD * 100, -50, 50)
+
         if vl.ICR is not None:
-            score += clamp(vl.ICR * 100, -50, 50)
+            scores["ICR_score"] = clamp(vl.ICR * 100, -50, 50)
 
-    if stock.expenses: 
+    # ========== Expenses ==========
+    if stock.expenses and stock.earning_metrics:
+        em = stock.earning_metrics[0]
         expenses = stock.expenses[0]
-        if expenses.operatingExpense is not None:
-            score += clamp((-expenses.operatingExpense + em.OperatingRevenue_Cagr) * 100, -50, 50)   
-            score += clamp((-expenses.Intrest_Expense + em.OperatingRevenue_Cagr) * 100, -50, 50)      
-            score += clamp((-expenses.CurrentDebt_cagr + em.OperatingRevenue_Cagr) * 100, -50, 50)
-    
-    return round(score, 2)
-    
+
+        if expenses.Operating_Expense is not None:
+            scores["Operating_Expense_score"] = 0 
+        if expenses.InterestExpense_cagr is not None:
+            scores["Intrest_Expense_score"] = clamp((-expenses.InterestExpense_cagr + em.OperatingRevenue_Cagr) * 100, -50, 50)
+
+        if expenses.CurrentDebt_cagr is not None:
+            scores["CurrentDebt_cagr_score"] = clamp((-expenses.CurrentDebt_cagr + em.OperatingRevenue_Cagr) * 100, -50, 50)
+
+    # Sum all non-None scores for total
+    total_score = round(sum([v for v in scores.values() if v is not None]), 2)
+
+    # Create StockFinancialScore object
+    financial_score_entry = StockFinancialScore(
+        stock_id=stock.id,
+        total_score=total_score,
+        **scores
+    )
+
+    db.add(financial_score_entry)
+    db.commit()
+    db.refresh(financial_score_entry)
+
+    return financial_score_entry
 
 
-def calculate_technical_score_periodwise(stock: Stock, db, max_score_per_metric=200, max_total_score=500):
+def create_technical_score(stock: Stock, db, max_total_score=100):
+    """
+    Compute detailed technical scores for each period and insert into StockTechnicalScores table.
+    """
 
-    scores = {}
+    results = []
     tech_map = {t.period: t for t in stock.technicals}
     channel_map = {c.period: c for c in stock.channels}
-    
+
     for period, tech in tech_map.items():
         score = 0
+        component_scores = {
+            "CurrentRsi_score": None,
+            "RsiSlope_score": None,
+            "ResistanceProximity_score": None,
+            "SupportProximity_score": None,
+            "VolumeUpperChannelSlope_score": None,
+            "VolumeLowerChannelSlope_score": None,
+            "ChannelUpperSlope_score": None,
+            "ChannelLowerSlope_score": None
+        }
+
+        channel = channel_map.get(period)
+
+        # ----- Nearest support/resistance -----
         currentsupport = db.query(SupportData).filter(
             SupportData.stock_id == stock.id,
             SupportData.period == period,
@@ -164,47 +209,82 @@ def calculate_technical_score_periodwise(stock: Stock, db, max_score_per_metric=
             SupportData.Price >= stock.CurrentPrice
         ).order_by(SupportData.Price.asc()).first()
 
-        channel = channel_map.get(period)
+        # ----- RSI Divergence -----
+        if tech.RsiSlope is not None and tech.PriceSlope is not None:
+            divergence = tech.RsiSlope - tech.PriceSlope
+            div_score = np.clip(divergence * 100, -100, 100)
+            component_scores["RsiSlope_score"] = div_score * 0.4
+            score += component_scores["RsiSlope_score"]
 
-        # RSI score
+        # ----- Raw RSI -----
         if tech.CurrentRsi is not None:
-            rsi_score = max(0, 30 - tech.CurrentRsi)
-            score += min(rsi_score, max_score_per_metric)
+            if tech.CurrentRsi < 30:
+                rsi_score = np.interp(tech.CurrentRsi, [10, 30], [100, 60])
+            elif tech.CurrentRsi > 70:
+                rsi_score = np.interp(tech.CurrentRsi, [70, 90], [40, 0])
+            else:
+                rsi_score = 70
+            component_scores["CurrentRsi_score"] = rsi_score * 0.2
+            score += component_scores["CurrentRsi_score"]
 
-            if channel:
-                rsi_slope_score1 = tech.RsiSlope - channel.upper_channel_slope
-                rsi_slope_score2 = tech.RsiSlope - channel.lower_channel_slope
-                score += min(max(rsi_slope_score1, 0), max_score_per_metric)
-                score += min(max(rsi_slope_score2, 0), max_score_per_metric)
-
-        # Resistance proximity
+        # ----- Resistance proximity -----
+        resistance_touch = False
         if currentresistance and stock.CurrentPrice:
             try:
                 dist = abs(stock.CurrentPrice - currentresistance.Price) / currentresistance.Price
                 if dist < 0.05:
-                    score += min(10, max_score_per_metric)
+                    resistance_touch = True
+                    component_scores["ResistanceProximity_score"] = 25 * (1 - dist / 0.05)
+                    score += component_scores["ResistanceProximity_score"]
             except:
                 pass
 
-        # Support proximity
+        # ----- Support proximity -----
+        support_touch = False
         if currentsupport and stock.CurrentPrice:
             try:
                 dist = abs(stock.CurrentPrice - currentsupport.Price) / currentsupport.Price
                 if dist < 0.05:
-                    score += min(10, max_score_per_metric)
+                    support_touch = True
+                    component_scores["SupportProximity_score"] = 25 * (1 - dist / 0.05)
+                    score += component_scores["SupportProximity_score"]
             except:
                 pass
 
-        # Volume slope
-        if tech.VolumeUpperChannelSlope and channel:
-            vol_score1 = tech.VolumeUpperChannelSlope - channel.upper_channel_slope
-            vol_score2 = tech.VolumeLowerChannelSlope - channel.lower_channel_slope
-            score += min(max(vol_score1, 0), max_score_per_metric)
-            score += min(max(vol_score2, 0), max_score_per_metric)
+        # ----- RSI + Support/Resistance Confluence -----
+        if tech.CurrentRsi is not None:
+            if support_touch and tech.CurrentRsi < 30:
+                score += 20
+            if resistance_touch and tech.CurrentRsi > 70:
+                score -= 20
 
-        # Cap the total score
-        score = min(score, max_total_score)
+        # ----- Volume slope alignment -----
+        if channel and tech.VolumeUpperChannelSlope and tech.VolumeLowerChannelSlope:
+            diff_up = tech.VolumeUpperChannelSlope - channel.upper_channel_slope
+            diff_down = tech.VolumeLowerChannelSlope - channel.lower_channel_slope
+            vol_score = np.clip((diff_up + diff_down) / 2, -1, 1) * 15
+            component_scores["VolumeUpperChannelSlope_score"] = tech.VolumeUpperChannelSlope
+            component_scores["VolumeLowerChannelSlope_score"] = tech.VolumeLowerChannelSlope
+            component_scores["ChannelUpperSlope_score"] = channel.upper_channel_slope
+            component_scores["ChannelLowerSlope_score"] = channel.lower_channel_slope
+            score += vol_score
 
-        scores[period] = round(score, 2)
+        # ----- Cap total -----
+        score = np.clip(score, 0, max_total_score)
 
-    return scores
+        # ----- Save entry -----
+        technical_score_entry = StockTechnicalScore(
+            stock_id=stock.id,
+            period=period,
+            total_score=round(score, 2),
+            **component_scores
+        )
+
+        db.add(technical_score_entry)
+        results.append(technical_score_entry)
+
+    db.commit()
+    for r in results:
+        db.refresh(r)
+
+    return results

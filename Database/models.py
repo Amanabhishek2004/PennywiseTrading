@@ -6,6 +6,7 @@ import json
 from sqlalchemy import event , text
 from Stock.Technicals.SignalGenerator import * 
 from datetime import datetime
+from Stock.Technicals.SignalGenerator import GenrateSignals
 from sqlalchemy import UniqueConstraint
 # from Database.DataBaseSingnals.AlertSignal import create_alert_on_stock_update  # adjust import path as needed
 # from .models import StockTechnicals  # or the model you want to listen to
@@ -32,7 +33,7 @@ class Stock(Base):
     __tablename__ = "Stocks"
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     Ticker = Column(String, unique=True, index=True)
-    CurrentPrice = Column(Integer, nullable=False, default=0)
+    CurrentPrice = Column(Float, nullable=False, default=0)
     marketCap = Column(Float)
     pctChange = Column(Float , nullable=True )
     Description = Column(String)
@@ -59,12 +60,31 @@ class Stock(Base):
     support = relationship("SupportData", back_populates="stock")
     quaterly_results = relationship("Quaterlyresult", back_populates="stock", cascade="all, delete")
     shareholdings = relationship("Shareholding", back_populates="stock", cascade="all, delete")
+    financial_scores = relationship("StockFinancialScore", back_populates="stock", cascade="all, delete")
+    technical_scores = relationship("StockTechnicalScore", back_populates="stock", cascade="all, delete")
     
     users = relationship(
         "User",
         secondary=watchlist_table,
         back_populates="watchlist"
     )
+
+
+class StockTechnicalScore(Base):
+    __tablename__ = "StockTechnicalScores"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    stock_id = Column(String, ForeignKey("Stocks.id", ondelete="CASCADE"), nullable=False)
+    period = Column(String, nullable=False)  # e.g. '1d', '1m'
+    CurrentRsi_score = Column(Float)
+    RsiSlope_score = Column(Float)
+    ResistanceProximity_score = Column(Float)
+    SupportProximity_score = Column(Float)
+    VolumeUpperChannelSlope_score = Column(Float)
+    VolumeLowerChannelSlope_score = Column(Float)
+    ChannelUpperSlope_score = Column(Float)
+    ChannelLowerSlope_score = Column(Float)
+    total_score = Column(Float)
+    stock = relationship("Stock", back_populates="technical_scores")
 
 class Subscription(Base):
     __tablename__ = "Subscription"
@@ -108,8 +128,6 @@ class User(Base):
     plans = relationship("Plan", back_populates="user", cascade="all, delete-orphan")
     read_history = relationship("ReadHistory", back_populates="user", cascade="all, delete-orphan")
     apikey_usage = relationship("ApiKeyUsage", back_populates="user", cascade="all, delete-orphan")
-    
-
 
 class Plan(Base):
     __tablename__ = "Plans"
@@ -257,6 +275,46 @@ class Financials(Base):
     TotalDebt = Column(String)
     ROCE = Column(String)
     stock = relationship("Stock", back_populates="financials")
+
+
+class StockFinancialScore(Base):
+    __tablename__ = "StockFinancialScores"
+    id = Column(String, primary_key=True, default=lambda: str(uuid4()))
+    stock_id = Column(String, ForeignKey("Stocks.id", ondelete="CASCADE"), nullable=False)
+    trailingPE_score = Column(Float)
+    forwardPE_score = Column(Float)
+    peg_score = Column(Float)
+    EVEBITDA_score = Column(Float)
+    medianpe_score = Column(Float)
+    pricetoSales_score = Column(Float)
+    pricetoFreeCashFlow_score = Column(Float)
+    FCFF_Yield_score = Column(Float)
+    CurrentRatio_score = Column(Float)
+    DebttoEquity_score = Column(Float)
+    Avg_Sales_QoQ_Growth_Percent_score = Column(Float)
+    Avg_NetProfit_QoQ_Growth_Percent_score = Column(Float)
+    Avg_OperatingProfit_QoQ_Growth_Percent_score = Column(Float)
+    Avg_EPS_QoQ_Growth_Percent_score = Column(Float)
+    EBIT_cagr_score = Column(Float)
+    EBITDA_cagr_score = Column(Float)
+    OperatingRevenue_Cagr_score = Column(Float)
+    NetIncome_cagr_score = Column(Float)
+    FCFF_Cagr_score = Column(Float)
+    operatingMargins_score = Column(Float)
+    epsTrailingTwelveMonths_score = Column(Float)
+    epsForward_score = Column(Float)
+    ROE_score = Column(Float)
+    ROA_score = Column(Float)
+    ROIC_score = Column(Float)
+    WACC_score = Column(Float)
+    COD_score = Column(Float)
+    ICR_score = Column(Float)
+    operatingExpense_score = Column(Float)
+    Intrest_Expense_score = Column(Float)
+    CurrentDebt_cagr_score = Column(Float)
+    total_score = Column(Float)
+
+    stock = relationship("Stock", back_populates="financial_scores")
 
 # ValuationMetrics Table
 class ValuationMetrics(Base):
@@ -412,11 +470,11 @@ def create_alert_on_stock_update(mapper, connection, target):
     alert_cases = []
 
     # Strongbear
-    if signal["RSI Signal"].get("rsipeak_max") and signal["RSI Signal"].get("Rsi", 0) > 70 and channel.upper_channel_slope > 0:
+    if target.RsiSlope < 0  and target.CurrentRsi> 70 and channel.upper_channel_slope > 0:
         alert_cases.append({"tag": "Strongbear", "rsiPeakdivergence": True})
 
     # Strongbull
-    if signal["RSI Signal"].get("rsipeak_min") and signal["RSI Signal"].get("Rsi", 100) < 35 and channel.lower_channel_slope > 0:
+    if target.RsiSlope > 0 and signal["RSI Signal"].get("Rsi", 100) < 35 and channel.lower_channel_slope > 0:
         alert_cases.append({"tag": "Strongbull", "rsiPeakdivergence": True})
 
     # Bull
@@ -493,10 +551,47 @@ def create_alert_on_stock_update(mapper, connection, target):
 event.listen(StockTechnicals, "after_update", create_alert_on_stock_update)
 
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from sqlalchemy import event
 from sqlalchemy.orm import Session
-from sqlalchemy import text
-from uuid import uuid4
-from datetime import datetime, date
+
+def schedule_channel_updates(session, flush_context):
+    for obj in session.new:
+        if isinstance(obj, PriceData):
+            print("New PriceData detected:", obj.ticker, flush=True)
+             
+            from Backend.Stock.Technicals.StockChannels import CreateChannel
+            from Stock.Technicals.SuppourtResistance import MakeStrongSupportResistance, CreatepatternSuppourt
+
+            def run_tasks():
+                print("running updates...", flush=True)
+                with SessionLocal() as async_session:
+                    with ThreadPoolExecutor(max_workers=6) as executor:
+                        executor.submit(CreateVolumeChannel, obj.ticker, "1m")
+                        executor.submit(CreateVolumeChannel, obj.ticker, "1d")
+                        executor.submit(MakeStrongSupportResistance, obj.ticker, async_session, "1d")
+                        executor.submit(MakeStrongSupportResistance, obj.ticker, async_session, "1m")
+                        executor.submit(CreatepatternSuppourt, obj.ticker, async_session, "1d")
+                        executor.submit(CreatepatternSuppourt, obj.ticker, async_session, "1m")
+                        executor.submit(CreateChannel, async_session, obj.ticker, 20, "1m")
+                        executor.submit(CreateChannel, async_session, obj.ticker, 20, "1d")
+                        executor.submit(CalculateRSI, obj.ticker, async_session, "1m")
+                        executor.submit(CalculateRSI, obj.ticker, async_session, "1d")
+
+            session.info.setdefault("after_commit_tasks", []).append(run_tasks)
+
+def run_after_commit(session):
+    tasks = session.info.pop("after_commit_tasks", [])
+    for task in tasks:
+        task()
+
+# Attach listeners to SessionLocal
+event.listen(SessionLocal, "after_flush", schedule_channel_updates)
+event.listen(SessionLocal, "after_commit", run_after_commit)
+
+
+
+
 
 def create_alert_on_swingpoint_insert(mapper, connection, target):
     session = SessionLocal()
@@ -510,34 +605,71 @@ def create_alert_on_swingpoint_insert(mapper, connection, target):
         if not stock:
             return
 
+        technical_data = session.query(StockTechnicals).filter(
+            StockTechnicals.period == target.period, 
+            StockTechnicals.stock_id == stock.id
+        ).first()
+
+        channel_data = session.query(Channel).filter(
+            Channel.stock_id == stock.id,
+            Channel.period == target.period
+        ).first()
+
         sql = text("""
             INSERT INTO "Alerts" (
-                id, user_id, "Ticker", time, tag, "rsiPeakdivergence", period
+                id,
+                user_id,
+                "Ticker",
+                time,
+                tag,
+                "rsiPeakdivergence",
+                "RsiSlope",
+                "lowerchannelSlope",
+                "upperchannelSlope",
+                period
             )
             SELECT
-                :id, w.user_id, :ticker, :time, :tag, :peak, :period
+                :id,
+                w.user_id,
+                :ticker,
+                :time,
+                :tag,
+                :rsiPeakdivergence,
+                :RsiSlope,
+                :lowerchannelSlope,
+                :upperchannelSlope,
+                :period
             FROM "Watchlist" w
             WHERE w.stock_id = :stock_id
-            AND NOT EXISTS (
+              AND NOT EXISTS (
                 SELECT 1 FROM "Alerts" a
                 WHERE a.user_id = w.user_id
-                AND a."Ticker" = :ticker
-                AND a.tag = :tag
-                AND a."rsiPeakdivergence" = :peak
-                AND a.period = :period
-                AND a.time::date = :date
-            )
+                  AND a."Ticker" = :ticker
+                  AND a.tag = :tag
+                  AND a."rsiPeakdivergence" = :rsiPeakdivergence
+                  AND a."RsiSlope" IS NOT DISTINCT FROM :RsiSlope
+                  AND a."lowerchannelSlope" IS NOT DISTINCT FROM :lowerchannelSlope
+                  AND a."upperchannelSlope" IS NOT DISTINCT FROM :upperchannelSlope
+                  AND a.period = :period
+                  AND a.time::date = :date
+              )
         """)
 
         session.execute(sql, {
             "id": str(uuid4()),
             "ticker": stock.Ticker,
-            "time": str(datetime.now()),
-            "tag": target.pattern,   # divergence pattern
-            "peak": False,
+            "time": str(target.time),
+            "tag": target.pattern,
+            "rsiPeakdivergence": (
+                technical_data.RsiSlope * channel_data.lower_channel_slope < 0
+                if technical_data and channel_data else False
+            ),
+            "RsiSlope": technical_data.RsiSlope if technical_data else None,
+            "lowerchannelSlope": channel_data.lower_channel_slope if channel_data else None,
+            "upperchannelSlope": channel_data.upper_channel_slope if channel_data else None,
             "period": target.period if hasattr(target, "period") else "30m",
             "stock_id": target.stock_id,
-            "date": str(date.today())
+            "date": str(datetime.date.today())
         })
 
         session.commit()
@@ -547,6 +679,7 @@ def create_alert_on_swingpoint_insert(mapper, connection, target):
         raise e
     finally:
         session.close()
+
 
 
 # Attach listener

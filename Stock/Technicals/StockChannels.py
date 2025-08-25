@@ -3,14 +3,15 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 from uuid import uuid4
 
-def CreateChannel(db, Ticker: str, timeperiod: int = 20, period: str = "1d"):
+def CreateChannel(db, Ticker: str, timeperiod: int = 20, period: str = "1d" , price_data = list):
     # Query the PriceData table for the specified ticker
     print(period)
-    from Database.models import PriceData , Channel
+    from Database.models import PriceData, Channel
     price_data = (
-        db.query(PriceData)
+       price_data
         .filter(PriceData.ticker == Ticker, PriceData.period == period)
-        .order_by(PriceData.date.asc())
+        .order_by(PriceData.date.desc()) 
+        .limit(timeperiod)               
         .all()
     )
 
@@ -18,7 +19,7 @@ def CreateChannel(db, Ticker: str, timeperiod: int = 20, period: str = "1d"):
     if not price_data:
         print(f"No data found for Ticker: {Ticker}")
         return
-    # Convert to pandas DataFrame
+    # Convert to pandas DataFrame (reverse to ascending order for regression)
     data = pd.DataFrame(
         [
             {
@@ -29,8 +30,9 @@ def CreateChannel(db, Ticker: str, timeperiod: int = 20, period: str = "1d"):
             }
             for record in price_data
         ]
-    )
-    print(len(data) , timeperiod) 
+    ).sort_values("date").reset_index(drop=True)
+
+    print(len(data), timeperiod)
     # Ensure there are enough data points
     if len(data) < timeperiod:
         return
@@ -56,9 +58,7 @@ def CreateChannel(db, Ticker: str, timeperiod: int = 20, period: str = "1d"):
         # Create a new channel record
         channel = Channel(
             id=str(uuid4()),
-            stock_id=price_data[
-                0
-            ].stock_id, 
+            stock_id=price_data[0].stock_id,
             ticker=Ticker,
             upper_channel_slope=float(upperlineslope),
             upper_channel_intercept=float(upperintercept),
@@ -88,34 +88,30 @@ def CreateChannel(db, Ticker: str, timeperiod: int = 20, period: str = "1d"):
         },
     }
 
-
 def CreateUpperChannel(data, window):
     """
-    Create an upper channel using a rolling window.
+    Create an upper channel using the latest 'window' rows.
     """
-    highwindow = data["high_price"].rolling(window=window).max()
-    x = np.arange(len(data["close_price"][-window:])).reshape(-1, 1)
-    y = highwindow[-window:].dropna().values
-
+    highs = data["high_price"].values[-window:]
+    x = np.arange(window).reshape(-1, 1)
+    if len(highs) < 2:
+        return 0, 0
     lr = LinearRegression()
-    lr.fit(x[: len(y)], y)  # Align x and y
+    lr.fit(x, highs)
     intercept = lr.intercept_
     coefficient = lr.coef_[0]
-
     return coefficient, intercept
-
 
 def CreateLowerChannel(data, window):
     """
-    Create a lower channel using a rolling window.
+    Create a lower channel using the latest 'window' rows.
     """
-    lowwindow = data["low_price"].rolling(window=window).min()
-    x = np.arange(len(data["close_price"][-window:])).reshape(-1, 1)
-    y = lowwindow[-window:].dropna().values
-
+    lows = data["low_price"].values[-window:]
+    x = np.arange(window).reshape(-1, 1)
+    if len(lows) < 2:
+        return 0, 0
     lr = LinearRegression()
-    lr.fit(x[: len(y)], y)  # Align x and y
+    lr.fit(x, lows)
     intercept = lr.intercept_
     coefficient = lr.coef_[0]
-
     return coefficient, intercept

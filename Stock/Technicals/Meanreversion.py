@@ -1,18 +1,13 @@
 import yfinance as yf 
 import pandas as pd 
 import numpy as np
-from Database.models import  *
-from .StockChannels import CreateChannel
 from Database.models import *
-from datetime import datetime , timedelta , timezone
+from .StockChannels import CreateChannel
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
 from sklearn.linear_model import LinearRegression
-from  sklearn.preprocessing import StandardScaler 
+from sklearn.preprocessing import StandardScaler 
 from supabase import create_client, Client
-from datetime import datetime, timezone, timedelta
-import pandas as pd
-import yfinance as yf
-import vectorbt as vbt
 from uuid import uuid4
 
 # --- Supabase Client ---
@@ -20,44 +15,32 @@ SUPABASE_URL = "https://uitfyfywxzaczubnecft.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpdGZ5Znl3eHphY3p1Ym5lY2Z0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTQ1MjMzNiwiZXhwIjoyMDY3MDI4MzM2fQ.yjZ6UsGzO4F6VyU0q_HSUVrekFr9XGHazN9cd61nOZ8"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def OnbalanceVolume(prices) : 
-    from Database.models import  Stock , StockTechnicals , Channel , PriceData  
-    data = pd.DataFrame(
-        {"Date": [price.Date for price in prices],  
-         "Close": [price.close_price for price in prices],
-         "Open": [price.open_price for price in prices],    
-         "Volume": [price.volume for price in prices]}
-    )
-    data['OBV'] = data['Volume'].where(data['Close'] > data['Open'], -data['Volume']).cumsum()
-    return {
-        "OBV": data['OBV'].values,
-        "Date": data['Date']   , 
-        "price"  : [price.close_price for price in prices]
-    }
-
-def CreateVolumeChannel(ticker: str, timeperiod: int = 30, period: str = "1d"):
+def CreateVolumeChannel(ticker: str, price_data, timeperiod: int = 30, period: str = "1d"):
     # Fetch price data from Supabase
-    price_data_res = supabase.table("PriceData") \
-        .select("date, OnbalanceVolume") \
-        .eq("ticker", ticker) \
-        .eq("period", period) \
-        .order("date", desc=False) \
-        .execute()
-
-    price_data = price_data_res.data
+    price_data = price_data.limit(100).all()
     if not price_data:
         print("No Price Data")
         return
 
-    data = pd.DataFrame(price_data)
+    data = pd.DataFrame([{
+        "OnbalanceVolume": p.OnbalanceVolume,
+        "date": p.date
+    } for p in price_data])
+
     if len(data) < timeperiod:
         raise ValueError(f"Not enough data points to calculate channels for timeperiod: {timeperiod} , {period}")
 
-    # Calculate channel slopes and intercepts
-    upperlineslope, upperintercept = CreateUpperChannel(data, window=timeperiod)
-    lowerlineslope, lowerintercept = CreateLowerChannel(data, window=timeperiod)
+    # --- Scale OBV before passing to regression ---
+    scaler = StandardScaler()
+    data["OnbalanceVolume_scaled"] = scaler.fit_transform(
+        data["OnbalanceVolume"].values.reshape(-1, 1)
+    ).flatten()
 
-    # Check if technical entry exists
+    # Calculate channel slopes and intercepts (on scaled OBV)
+    upperlineslope, upperintercept = CreateUpperChannel(data, window=timeperiod, scaled=True)
+    lowerlineslope, lowerintercept = CreateLowerChannel(data, window=timeperiod, scaled=True)
+
+    # Save/update in Supabase
     tech_res = supabase.table("StockTechnicals") \
         .select("id") \
         .eq("ticker", ticker) \
@@ -65,7 +48,6 @@ def CreateVolumeChannel(ticker: str, timeperiod: int = 30, period: str = "1d"):
         .execute()
 
     if tech_res.data:
-        # Update existing technicals
         supabase.table("StockTechnicals").update({
             "VolumeUpperChannelSlope": float(upperlineslope),
             "VolumeUpperChannelIntercept": float(upperintercept),
@@ -73,12 +55,11 @@ def CreateVolumeChannel(ticker: str, timeperiod: int = 30, period: str = "1d"):
             "VolumeLowerChannelIntercept": float(lowerintercept)
         }).eq("id", tech_res.data[0]["id"]).execute()
     else:
-        # Get stock_id
         stock_res = supabase.table("Stocks").select("id").eq("Ticker", ticker).execute()
         stock_id = stock_res.data[0]["id"] if stock_res.data else None
 
-        # Insert new technical entry
         supabase.table("StockTechnicals").insert({
+            "id": str(uuid4()),
             "ticker": ticker,
             "period": period,
             "stock_id": stock_id,
@@ -87,7 +68,7 @@ def CreateVolumeChannel(ticker: str, timeperiod: int = 30, period: str = "1d"):
             "VolumeLowerChannelSlope": float(lowerlineslope),
             "VolumeLowerChannelIntercept": float(lowerintercept)
         }).execute()
-
+    
     return {
         "UpperChannelData": {
             "Slope": upperlineslope,
@@ -102,57 +83,39 @@ def CreateVolumeChannel(ticker: str, timeperiod: int = 30, period: str = "1d"):
     }
 
 
-def CreateUpperChannel(data, window):
-    """
-    Create an upper channel using a rolling window, with scaling.
-    """
-     
-    highwindow = data["OnbalanceVolume"].rolling(window=window).max()
-    x = np.arange(len(data["OnbalanceVolume"][-window:])).reshape(-1, 1)
-    y = highwindow[-window:].dropna().values
+def CreateUpperChannel(data, window, scaled=False):
+    """Create an upper channel using rolling max."""
+    col = "OnbalanceVolume_scaled" if scaled else "OnbalanceVolume"
+    highwindow = data[col].rolling(window=window).max().dropna()
 
-    # Apply scaling to x and y
-    scaler_x = StandardScaler()
-    scaler_y = StandardScaler()
-    x_scaled = scaler_x.fit_transform(x[:len(y)])
-    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).flatten()
+    y = highwindow.values
+    x = np.arange(len(y)).reshape(-1, 1)
 
     lr = LinearRegression()
-    lr.fit(x_scaled, y_scaled)  # Fit on scaled data
-    intercept = lr.intercept_
-    coefficient = lr.coef_[0]
+    lr.fit(x, y)
 
-    return coefficient, intercept
+    return lr.coef_[0], lr.intercept_
 
-def CreateLowerChannel(data, window):
-    """
-    Create a lower channel using a rolling window, with scaling.
-    """
-    lowwindow = data["OnbalanceVolume"].rolling(window=window).min()
-    x = np.arange(len(data["OnbalanceVolume"][-window:])).reshape(-1, 1)
-    y = lowwindow[-window:].dropna().values
 
-    # Apply scaling to x and y
-    scaler_x = StandardScaler()
-    scaler_y = StandardScaler()
-    x_scaled = scaler_x.fit_transform(x[:len(y)])
-    y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).flatten()
+def CreateLowerChannel(data, window, scaled=False):
+    """Create a lower channel using rolling min."""
+    col = "OnbalanceVolume_scaled" if scaled else "OnbalanceVolume"
+    lowwindow = data[col].rolling(window=window).min().dropna()
+
+    y = lowwindow.values
+    x = np.arange(len(y)).reshape(-1, 1)
 
     lr = LinearRegression()
-    lr.fit(x_scaled, y_scaled)  # Fit on scaled data
-    intercept = lr.intercept_
-    coefficient = lr.coef_[0]
+    lr.fit(x, y)
 
-    return coefficient, intercept
+    return lr.coef_[0], lr.intercept_
 
 
 def format_with_colon(dt):
-        """Format datetime with a colon in the timezone offset and seconds set to 00."""
-        return dt.strftime('%Y-%m-%d %H:%M:00%z')[:-2] + ':' + dt.strftime('%Y-%m-%d %H:%M:00%z')[-2:]
-
+    """Format datetime with a colon in the timezone offset and seconds set to 00."""
+    return dt.strftime('%Y-%m-%d %H:%M:00%z')[:-2] + ':' + dt.strftime('%Y-%m-%d %H:%M:00%z')[-2:]
 
 def CalculateVolumepeakmaxmin(db, date, ticker, period, interval):
-    from Database.models import  Stock , StockTechnicals , Channel , PriceData  
     tolerance = 0.003
     ist_offset = timezone(timedelta(hours=5, minutes=30))
     if period == "1d":
@@ -176,28 +139,17 @@ def CalculateVolumepeakmaxmin(db, date, ticker, period, interval):
         db.query(func.min(PriceData.OnbalanceVolume))
         .join(Stock)
         .filter(PriceData.date.in_(dates), Stock.Ticker == ticker)
-        .scalar()  # Fetch the scalar value
+        .scalar()
     )
 
     max_peak = (
         db.query(func.max(PriceData.OnbalanceVolume))
         .join(Stock)
         .filter(PriceData.date.in_(dates), Stock.Ticker == ticker)
-        .scalar()  # Fetch the scalar value
+        .scalar()
     )
 
     return {
-        "min": min_peak,  # Returns the minimum OBV
-        "max": max_peak   # Returns the maximum OBV
+        "min": min_peak,
+        "max": max_peak
     }
-     
-     
-     
-
-
-
-
-
-
-
-
