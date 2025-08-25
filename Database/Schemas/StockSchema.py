@@ -219,7 +219,7 @@ class ShareholdingSchema(BaseModel):
 class StockSchema(BaseModel):
     id: str
     Ticker: str
-    CurrentPrice: int
+    CurrentPrice: float
     marketCap: Optional[float]
     Description: Optional[str]
     CompanyName: Optional[str]
