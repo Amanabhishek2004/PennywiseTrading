@@ -11,7 +11,6 @@ def CreateChannel(db, Ticker: str, timeperiod: int = 20, period: str = "1d" , pr
        price_data
         .filter(PriceData.ticker == Ticker, PriceData.period == period)
         .order_by(PriceData.date.desc()) 
-        .limit(timeperiod*3)               
         .all()
     )
 
@@ -90,10 +89,11 @@ def CreateChannel(db, Ticker: str, timeperiod: int = 20, period: str = "1d" , pr
 
 def CreateUpperChannel(data, window):
     """
-    Create an upper channel using the latest 'window' rows.
+    Create an upper channel using rolling max over the latest 'window' rows.
     """
-    highs = data["high_price"].rolling(window=window).max().values[ : window]
-    x = np.arange(window).flip().reshape(-1, 1)
+    highs_rolling = data["high_price"].rolling(window=window).max()
+    highs = highs_rolling.dropna().values[-window:]  # last 'window' rolling max values
+    x = np.arange(len(highs)).reshape(-1, 1)
     if len(highs) < 2:
         return 0, 0
     lr = LinearRegression()
@@ -104,10 +104,11 @@ def CreateUpperChannel(data, window):
 
 def CreateLowerChannel(data, window):
     """
-    Create a lower channel using the latest 'window' rows.
+    Create a lower channel using rolling min over the latest 'window' rows.
     """
-    lows = data["low_price"].rolling(window = window).values[:window]
-    x = np.arange(window).flip().reshape(-1, 1)
+    lows_rolling = data["low_price"].rolling(window=window).min()
+    lows = lows_rolling.dropna().values[-window:]  # last 'window' rolling min values
+    x = np.arange(len(lows)).reshape(-1, 1)
     if len(lows) < 2:
         return 0, 0
     lr = LinearRegression()
