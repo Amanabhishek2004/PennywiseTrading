@@ -46,7 +46,7 @@ class VolumeSignalSchema(BaseModel):
 
 class SignalResponseSchema(BaseModel):
     Signal: Dict[str, Any]
-    message: Optional[str]
+    message: List
     Support: Optional[float]
     PriceAction: Optional[Any]
 
@@ -237,26 +237,36 @@ def GenerateBuySellSignals(
     if support and signal["RSI Signal"]["Rsi"] < 35:
         message = f"Buy at {float(support.Price)}"
     if signal["RSI Signal"].get("rsipeak_min") and signal["RSI Signal"]["Rsi"] < 35:
-        message = (
-            f"Buy at {currentprice} or {float(support.Price) if support else None}"
-        )
+        message = f"Buy at {currentprice} or {float(support.Price) if support else None}"
 
     patterdata = IdentifyDoubleCandleStickPatterns(prices[-2:], period)
     patterdata2 = IdentifySingleCandleStickPattern(prices[-1], period)
 
+    # --- Helpers ---
     def to_py(val):
+        """Convert numpy / special values to plain Python types"""
         return val.item() if hasattr(val, "item") else val
 
+    def normalize(val):
+        """Handle dict, list, or single values from signal output"""
+        if isinstance(val, dict):
+            return {ik: to_py(iv) for ik, iv in val.items()}
+        elif isinstance(val, list):
+            return [to_py(iv) for iv in val]
+        else:
+            return to_py(val)
 
+    # --- Final response ---
     result = SignalResponseSchema(
-        Signal={k: {ik: to_py(iv) for ik, iv in v.items()} for k, v in signal.items()},
-        message=message,
+        Signal={k: normalize(v) for k, v in signal.items()},
+        message=signal["messages"],
         Support=float(support.Price) if support else None,
         PriceAction=[to_py(patterdata), to_py(patterdata2)],
     )
 
     track_read_and_data_usage(db, current_user.id, result)
     return result
+
 
 
 @router.get("/SwingPoints/{ticker}" )

@@ -6,7 +6,7 @@ from typing import List, Optional
 class StockSchema(BaseModel):
     id: str
     Ticker: str
-    CurrentPrice: int
+    CurrentPrice: float
     marketCap: Optional[float]
     CompanyName: Optional[str]
     sector: Optional[str]
