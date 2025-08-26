@@ -669,7 +669,7 @@ def create_alert_on_swingpoint_insert(mapper, connection, target):
             "upperchannelSlope": channel_data.upper_channel_slope if channel_data else None,
             "period": target.period if hasattr(target, "period") else "30m",
             "stock_id": target.stock_id,
-            "date": str(datetime.date.today())
+            "date": str(datetime.now())
         })
 
         session.commit()
