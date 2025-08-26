@@ -68,9 +68,7 @@ def safe_get_value(value, default=0):
         return default
     return value
 
-# Helper functions
-# 260 , 901
-# 890 
+
 
 import math
 from uuid import uuid4
@@ -510,10 +508,6 @@ def update_date_changer(db: Session = Depends(get_db)):
     return {"detail": "Date changer updated successfully."}          
 
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import traceback
 
 @router.patch("/UpdateAllData/{ticker}", response_model=dict)
 def UpdateAllTechnicaldata(

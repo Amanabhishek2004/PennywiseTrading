@@ -15,6 +15,10 @@ from Database.Schemas.StockFundamentalRoutesSchema import (
     DaysSchema,
 )
 from Routers.UserAccountRoutes import get_current_user
+from Stock.Fundametals.StockScreener import create_financial_score , create_technical_score
+from Database.Schemas.StockScreenerSchema  import StockScoresResponse
+
+
 
 router = APIRouter(prefix="/V2", tags=["Stock Fundamental Data Routes"])
 
@@ -273,22 +277,28 @@ def replace_nan_with_none(obj):
     else:
         return obj
 
-@router.get("/screening-scores/all")
+@router.get("/screening-scores/{ticker}", response_model=StockScoresResponse)
 def get_all_screening_scores(
+    ticker: str,
+    current_user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    stocks = db.query(Stock).all()
-    results = []
-    for stock in stocks:
-        financial_score = calculate_financial_score(stock)
-        technical_scores = calculate_technical_score_periodwise(stock , db)
-        results.append({
-            "ticker": stock.Ticker,
-            "financial_score": financial_score,
-            "technical_scores": technical_scores
-        })
-        stock.FinancialScore = float(financial_score)
-        stock.TechnicalIntradayScore = technical_scores.get("1m", 0.0) 
-        stock.TechnicalDailyScore = technical_scores.get("1d", 0.0)
-        db.commit()
-    return replace_nan_with_none(results)
+    stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
+    if not stock:
+        return {"detail": f"Ticker {ticker} not found"}
+
+    # Create/update scores
+    financial_score = create_financial_score(stock, db)
+    technical_scores = create_technical_score(stock, db)
+
+    # Update stock fields
+    stock.FinancialScore = float(financial_score.total_score)
+    stock.TechnicalIntradayScore = next((ts.total_score for ts in technical_scores if ts.period == "1m"), 0.0)
+    stock.TechnicalDailyScore = next((ts.total_score for ts in technical_scores if ts.period == "1d"), 0.0)
+    db.commit()
+
+    return StockScoresResponse(
+        ticker=stock.Ticker,
+        financial_score=financial_score,
+        technical_scores=technical_scores,
+    )

@@ -1,4 +1,4 @@
-from Database.models import Stock, StockTechnicals , SupportData , StockFinancialScore
+from Database.models import Stock, StockTechnicals , SupportData , StockFinancialScore ,StockTechnicalScore
 import numpy as np 
 def convert_to_list(data_string):
     if data_string is None:
@@ -28,6 +28,9 @@ def convert_to_list(data_string):
 
 
 import numpy as np
+def clamp(value, min_value, max_value):
+    return max(min_value, min(value, max_value))
+
 
 def create_financial_score(stock: Stock, db):
     """
@@ -148,7 +151,7 @@ def create_financial_score(stock: Stock, db):
         expenses = stock.expenses[0]
 
         if expenses.Operating_Expense is not None:
-            scores["Operating_Expense_score"] = 0 
+            scores["operatingExpense_score"] = 0 
         if expenses.InterestExpense_cagr is not None:
             scores["Intrest_Expense_score"] = clamp((-expenses.InterestExpense_cagr + em.OperatingRevenue_Cagr) * 100, -50, 50)
 
@@ -159,6 +162,9 @@ def create_financial_score(stock: Stock, db):
     total_score = round(sum([v for v in scores.values() if v is not None]), 2)
 
     # Create StockFinancialScore object
+    existingscore = db.query(StockFinancialScore).filter(StockFinancialScore.stock_id == stock.id).first()
+    if existingscore:
+      db.delete(existingscore)
     financial_score_entry = StockFinancialScore(
         stock_id=stock.id,
         total_score=total_score,
@@ -208,10 +214,11 @@ def create_technical_score(stock: Stock, db, max_total_score=100):
             SupportData.period == period,
             SupportData.Price >= stock.CurrentPrice
         ).order_by(SupportData.Price.asc()).first()
-
+          
         # ----- RSI Divergence -----
-        if tech.RsiSlope is not None and tech.PriceSlope is not None:
-            divergence = tech.RsiSlope - tech.PriceSlope
+
+        if tech.RsiSlope is not None and channel.upper_channel_slope is not None:
+            divergence = tech.RsiSlope - channel.upper_channel_slope
             div_score = np.clip(divergence * 100, -100, 100)
             component_scores["RsiSlope_score"] = div_score * 0.4
             score += component_scores["RsiSlope_score"]
@@ -263,16 +270,19 @@ def create_technical_score(stock: Stock, db, max_total_score=100):
             diff_up = tech.VolumeUpperChannelSlope - channel.upper_channel_slope
             diff_down = tech.VolumeLowerChannelSlope - channel.lower_channel_slope
             vol_score = np.clip((diff_up + diff_down) / 2, -1, 1) * 15
-            component_scores["VolumeUpperChannelSlope_score"] = tech.VolumeUpperChannelSlope
-            component_scores["VolumeLowerChannelSlope_score"] = tech.VolumeLowerChannelSlope
-            component_scores["ChannelUpperSlope_score"] = channel.upper_channel_slope
-            component_scores["ChannelLowerSlope_score"] = channel.lower_channel_slope
+            component_scores["VolumeUpperChannelSlope_score"] = (- channel.upper_channel_slope  + tech.VolumeUpperChannelSlope) *100
+            component_scores["VolumeLowerChannelSlope_score"] = ( - channel.lower_channel_slope + tech.VolumeLowerChannelSlope)*100
+            component_scores["ChannelUpperSlope_score"] = channel.upper_channel_slope * 100
+            component_scores["ChannelLowerSlope_score"] = channel.lower_channel_slope *100
             score += vol_score
 
         # ----- Cap total -----
         score = np.clip(score, 0, max_total_score)
 
         # ----- Save entry -----
+        if db.query(StockTechnicalScore).filter(StockTechnicalScore.stock_id == stock.id, StockTechnicalScore.period == period).first():
+            db.query(StockTechnicalScore).filter(StockTechnicalScore.stock_id == stock.id, StockTechnicalScore.period == period).delete() 
+             
         technical_score_entry = StockTechnicalScore(
             stock_id=stock.id,
             period=period,
