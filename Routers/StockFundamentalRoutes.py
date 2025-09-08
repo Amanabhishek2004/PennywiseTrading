@@ -62,7 +62,7 @@ def _track_read_and_data_usage(db: Session, user_id: str, data_obj, read_inc: in
 def _parse_metric_with_dates(metric_str: str | None, dates: list[str]):
     try:
         values = ast.literal_eval(metric_str or "[]")
-        return [{"Date": d, "Value": float(v)} for d, v in zip(dates, values)]
+        return [{"Date": str(d), "Value": float(v)} for d, v in zip(dates, values)]
     except Exception:
         return []
 

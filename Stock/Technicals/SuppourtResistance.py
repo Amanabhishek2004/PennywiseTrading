@@ -137,10 +137,14 @@ def UpdateSuppourt(Ticker, db, period):
     }
 
 from datetime import datetime
+import pandas as pd
+from dateutil import parser
 
-def MakeStrongSupportResistance(ticker, db, period, prices, stock_data):
+def MakeStrongSupportResistance(ticker, db, period, prices=None, stock_data=None):
     if not stock_data:
-        raise ValueError(f"Stock with ticker {ticker} not found in the database.")
+        stock_data = db.query(Stock).filter(Stock.Ticker == ticker).first()
+        if not stock_data:
+            return {"message": f"Stock with ticker {ticker} not found"}
 
     current_price = stock_data.CurrentPrice  
 
@@ -156,32 +160,91 @@ def MakeStrongSupportResistance(ticker, db, period, prices, stock_data):
             except Exception:
                 print(f"[WARN] Failed to parse updated field: {stock_data.updated}")
 
-    # --- Base query ---
-    query = prices.filter(
-        PriceData.stock_id == stock_data.id,
-        PriceData.period == period,
-        PriceData.close_price >= current_price * 0.9,
-        PriceData.close_price <= current_price * 1.1,
-        PriceData.date >= stock_data.updated if stock_data.updated else "",
-    )
+    # ================================
+    # Case 1: No prices passed → fetch from DB
+    # ================================
+    if prices is None:
+        prices = db.query(PriceData).filter(
+            PriceData.stock_id == stock_data.id,
+            PriceData.period == period,
+            PriceData.close_price >= current_price * 0.7,   # -30%
+            PriceData.close_price <= current_price * 1.3,   # +30%
+        )
+        if last_updated:
+            prices = prices.filter(PriceData.date >= last_updated)
 
-    # --- Apply last_updated filter if available ---
-    Prices = query.order_by(PriceData.date.asc()).all()
-    print(f"[DEBUG] MakeStrong levels Loaded {len(Prices)} candles for {ticker} [{period}]")
+        Prices = prices.order_by(PriceData.date.asc()).all()
 
-    if not Prices:
-        return {"message": "No new prices to process", "Ticker": ticker, "Period": period}
+        data = pd.DataFrame({
+            "Date": [p.date for p in Prices],
+            "Low": [p.low_price for p in Prices],
+            "High": [p.high_price for p in Prices],
+            "Close": [p.close_price for p in Prices],
+            "OnBalanceVolume": [getattr(p, "onbalancevolume", None) for p in Prices],
+            "RSI": [getattr(p, "rsi", None) for p in Prices],
+        })
 
-    # --- Convert to DataFrame ---
-    data = pd.DataFrame({
-        "Date": [p.date for p in Prices],
-        "Low": [p.low_price for p in Prices],
-        "High": [p.high_price for p in Prices],
-        "Close": [p.close_price for p in Prices],
-    })
+    # ================================
+    # Case 2: prices is a dict/list of dicts
+    # ================================
+    elif isinstance(prices, (dict, list)):
+        data = pd.DataFrame(prices)
 
+        # Ensure required columns exist
+        required_cols = {"date", "low_price", "high_price", "close_price"}
+        missing = required_cols - set(data.columns)
+        if missing:
+            raise ValueError(f"Missing columns in price data: {missing}")
+
+        # Rename consistently
+        rename_map = {
+            "date": "Date",
+            "low_price": "Low",
+            "high_price": "High",
+            "close_price": "Close",
+            "onbalancevolume": "OnBalanceVolume",
+            "rsi": "RSI",
+        }
+        data.rename(columns=rename_map, inplace=True)
+
+        # Convert Date (string → datetime)
+        data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
+
+        # Ensure OBV/RSI columns exist
+        if "OnBalanceVolume" not in data:
+            data["OnBalanceVolume"] = None
+        if "RSI" not in data:
+            data["RSI"] = None
+
+        # Filter by ±30% of current price
+        data = data[
+            (data["Close"] >= current_price * 0.7) &
+            (data["Close"] <= current_price * 1.3)
+        ]
+
+    # ================================
+    # Case 3: prices is already a query object
+    # ================================
+    else:
+        Prices = prices.filter(
+            PriceData.close_price >= current_price * 0.7,
+            PriceData.close_price <= current_price * 1.3,
+        ).order_by(PriceData.date.asc()).all()
+
+        data = pd.DataFrame({
+            "Date": [p.date for p in Prices],
+            "Low": [p.low_price for p in Prices],
+            "High": [p.high_price for p in Prices],
+            "Close": [p.close_price for p in Prices],
+            "OnBalanceVolume": [getattr(p, "OnBalanceVolume", None) for p in Prices],
+            "RSI": [getattr(p, "RSI", None) for p in Prices],
+        })
+
+    # ================================
+    # If no data found
+    # ================================
     if data.empty:
-        return {"message": "Empty DataFrame after query", "Ticker": ticker, "Period": period}
+        return {"message": "No price data found", "Ticker": ticker, "Period": period}
 
     # Rolling min/max for support/resistance zones
     data["RoundedLow"] = data["Low"].rolling(window=10, min_periods=1).min()
@@ -238,8 +301,9 @@ def MakeStrongSupportResistance(ticker, db, period, prices, stock_data):
                 retests=int(row["count"]),
             )
             db.add(suppourt)
+
     print(strong_levels)
-    # ⚠️ Removed db.commit() → caller should commit at API/service layer
+
     return {
         "Ticker": ticker,
         "Period": period,
@@ -247,242 +311,171 @@ def MakeStrongSupportResistance(ticker, db, period, prices, stock_data):
     }
 
 
-from datetime import datetime
-from sqlalchemy import cast, String, DateTime
-from datetime import datetime
+import pandas as pd
 
-from dateutil import parser
-from sqlalchemy import func, cast, DateTime
+def CreatepatternSuppourt(df: pd.DataFrame, ticker: str, db, period: str, current_price: float = None, channel=None, stock_data=None):
 
-def CreatepatternSuppourt(Ticker, db, period, price_query, stock_data):
-    if not stock_data:
-        return {"error": "Stock not found"}
-
-    current_price = stock_data.CurrentPrice
-
-    # --- Parse last_time properly ---
-
-    # --- Base query ---
-    price_query = price_query.filter(
-        PriceData.stock_id == stock_data.id,
-        PriceData.period == period,
-        PriceData.close_price.between(current_price * 0.9, current_price * 1.1) , 
-        PriceData.date >= stock_data.updated if stock_data.updated else "",
-    ).order_by(PriceData.date.asc())
-
-    # --- Filter by last_updated safely ---
-       
-    short_termprices = price_query.all()
-    print(f"[DEBUG] Loaded {len(short_termprices)} candles for {Ticker} [{period}]")
-    if not short_termprices:
+    if df.empty:
         return {
             "message": "No new candles to process",
-            "Ticker": Ticker,
+            "Ticker": ticker,
             "Period": period
         }
 
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date", ascending=True)
+
     # --- Identify patterns ---
     patterns = []
-    for idx, price in enumerate(short_termprices):
-        data = IdentifySingleCandleStickPattern(price, period)
-        if not data and idx > 0:
-            data = IdentifyDoubleCandleStickPatterns(short_termprices[idx-1:idx+1], period)
+    for i in range(len(df)):
+        row = df.iloc[i]
+        data = identify_single_candle_pattern(row, period, channel)
+        if not data and i > 0:
+            prev_row = df.iloc[i - 1]
+            data = identify_double_candle_patterns(prev_row, row, period, channel)
         if data:
             patterns.append(data)
 
-    # --- Bulk fetch existing patterns once ---
-    all_existing = db.query(SupportData).filter(
-        SupportData.stock_id == stock_data.id,
-        SupportData.period == period
-    ).all()
-    existing_map = {round(e.Price, 2): e for e in all_existing}
-
+    # --- Aggregate into support/resistance entries ---
     processed_levels = set()
-    new_patterns = []
+    entries = []
+    existing_map = {}  # key: rounded price, value: entry dict
 
     for data in patterns:
         price_level = data.get("Suppourt") or data.get("Resistance")
-        if not price_level or price_level in processed_levels:
+        if not price_level:
+            continue
+
+        if price_level in processed_levels:
             continue
         processed_levels.add(price_level)
 
         tolerance = 0.008 * price_level
         key = round(price_level, 2)
 
-        if key in existing_map and abs(existing_map[key].Price - price_level) <= tolerance:
-            existing_map[key].retests += 1
-            existing_map[key].Pattern = data["pattern"]
-            existing_map[key].timestamp = str(data["time"])
+        if key in existing_map and abs(existing_map[key]["Price"] - price_level) <= tolerance:
+            existing_map[key]["retests"] += 1
+            existing_map[key]["Pattern"] = data["pattern"]
+            existing_map[key]["timestamp"] = str(data["time"])
         else:
-            new_patterns.append(SupportData(
-                stock_id=stock_data.id,
-                Price=price_level,
-                period=period,
-                Pattern=data["pattern"],
-                timestamp=str(data["time"]),
-                retests=1
-            ))
+            entry = {
+                "Price": price_level,
+                "period": period,
+                "Pattern": data["pattern"],
+                "timestamp": str(data["time"]),
+                "retests": 1
+            }
+            existing_map[key] = entry
+            entries.append(entry)
 
-    if new_patterns:
-        db.bulk_save_objects(new_patterns)
+    # --- Create SupportData instances in DB ---
+    if stock_data is not None:
+        for e in entries:
+            existing = db.query(SupportData).filter(
+                SupportData.stock_id == stock_data.id,
+                SupportData.Price == float(e["Price"]),
+                SupportData.period == period,
+                SupportData.Pattern == e["Pattern"]
+            ).first()
 
-    # --- Update StockTechnicals (support/resistance) ---
-    support = db.query(SupportData.Price, SupportData.Pattern, SupportData.timestamp).filter(
-        SupportData.stock_id == stock_data.id,
-        SupportData.period == period,
-        SupportData.Price < current_price
-    ).order_by(SupportData.Price.desc()).first()
+            if existing:
+                existing.retests = int(e["retests"])
+                existing.timestamp = e["timestamp"]
+            else:
+                supp_instance = SupportData(
+                    stock_id=stock_data.id,
+                    Price=float(e["Price"]),
+                    period=period,
+                    Pattern=e["Pattern"],
+                    retests=int(e["retests"]),
+                    timestamp=e["timestamp"]
+                )
+                db.add(supp_instance)
+        db.commit()
 
-    resistance = db.query(SupportData.Price, SupportData.Pattern, SupportData.timestamp).filter(
-        SupportData.stock_id == stock_data.id,
-        SupportData.period == period,
-        SupportData.Price > current_price
-    ).order_by(SupportData.Price.asc()).first()
+    # --- Final support/resistance relative to current price ---
+    support, resistance = None, None
+    if current_price is not None:
+        supports = [e for e in entries if e["Price"] < current_price]
+        resistances = [e for e in entries if e["Price"] > current_price]
+        support = max(supports, key=lambda x: x["Price"], default=None)
+        resistance = min(resistances, key=lambda x: x["Price"], default=None)
 
-    technical = db.query(StockTechnicals).filter(
-        StockTechnicals.stock_id == stock_data.id,
-        StockTechnicals.period == period
-    ).first()
-
-    if technical:
-        technical.CurrentSupport = support.Price if support else None
-        technical.CurrentResistance = resistance.Price if resistance else None
-    else:
-        db.add(StockTechnicals(
-            stock_id=stock_data.id,
-            ticker=Ticker,
-            period=period,
-            CurrentSupport=support.Price if support else None,
-            CurrentResistance=resistance.Price if resistance else None
-        ))
-
-    # ⚠️ Removed db.commit() → should be committed outside at API level
     return {
-        "Support": support.Price if support else None,
-        "Resistance": resistance.Price if resistance else None,
-        "Support_pattern": support.Pattern if support else None,
-        "Resistance_pattern": resistance.Pattern if resistance else None,
-        "Ticker": Ticker,
+        "Ticker": ticker,
         "Period": period,
+        "Support": support["Price"] if support else None,
+        "Resistance": resistance["Price"] if resistance else None,
+        "Support_pattern": support["Pattern"] if support else None,
+        "Resistance_pattern": resistance["Pattern"] if resistance else None,
+        "Entries": entries
     }
 
 
-
-def IdentifySingleCandleStickPattern(price, period):
+def identify_single_candle_pattern(price, period, channels=None):
     body = abs(price.open_price - price.close_price)
     uppershadow = price.high_price - max(price.open_price, price.close_price)
     lowershadow = min(price.open_price, price.close_price) - price.low_price
 
+    rsi = getattr(price, "RSI", None)
+
+    # Detect trend using channel slopes
+    lower_slope = channels.get("LowerChannelData", {}).get("Slope", 0) if channels else 0
+    upper_slope = channels.get("UpperChannelData", {}).get("Slope", 0) if channels else 0
+
+    downtrend = lower_slope < 0 and upper_slope < 0
+    uptrend = lower_slope > 0 and upper_slope > 0
+
     # Hammer
-    if body > 0 and uppershadow <= 0.02 * body and lowershadow >= 1.5 * body:
-        return {
-            "Suppourt": price.low_price,
-            "pattern": "Hammer",
-            "time": price.date,
-            "period": period,
-        }
+    if downtrend and rsi is not None and rsi < 30 and body > 0 and uppershadow <= 0.02 * body and lowershadow >= 1.5 * body:
+        return {"Suppourt": price.low_price, "pattern": "Hammer", "time": price.date, "period": period}
 
     # Shooting Star
-    if body > 0 and uppershadow >= 2 * body and lowershadow <= 0.2 * body:
-        return {
-            "Resistance": price.high_price,
-            "pattern": "Shooting Star",
-            "time": price.date,
-            "period": period,
-        }
+    if uptrend and rsi is not None and rsi > 70 and body > 0 and uppershadow >= 2 * body and lowershadow <= 0.2 * body:
+        return {"Resistance": price.high_price, "pattern": "Shooting Star", "time": price.date, "period": period}
 
     # Doji
-    if body <= 0.1 * (price.high_price - price.low_price):  # Body is very small
-        if uppershadow == 0 and lowershadow > 0:
-            return {
-                "Suppourt": price.low_price,
-                "pattern": "T",
-                "time": price.date,
-                "period": period,
-            }
-        elif lowershadow == 0 and uppershadow > 0:
-            return {
-                "Resistance": price.high_price,
-                "pattern": "Inverted T",
-                "time": price.date,
-                "period": period,
-            }
+    if body <= 0.1 * (price.high_price - price.low_price):
+        if downtrend and rsi is not None and rsi < 30 and uppershadow == 0 and lowershadow > 0:
+            return {"Suppourt": price.low_price, "pattern": "T", "time": price.date, "period": period}
+        elif uptrend and rsi is not None and rsi > 70 and lowershadow == 0 and uppershadow > 0:
+            return {"Resistance": price.high_price, "pattern": "Inverted T", "time": price.date, "period": period}
         elif uppershadow > 0 and lowershadow > 0:
-            return {
-                "Resistance": price.close_price,
-                "pattern": "Doji",
-                "time": price.date,
-                "period": period,
-            }
+            return {"Resistance": price.close_price, "pattern": "Doji", "time": price.date, "period": period}
 
     return None
 
 
-def IdentifyDoubleCandleStickPatterns(prices, period):
-    if len(prices) < 2:
-        return None
-
-    first = prices[-2]
-    second = prices[-1]
-
+def identify_double_candle_patterns(first, second, period, channels=None):
     o1, c1 = first.open_price, first.close_price
     o2, c2 = second.open_price, second.close_price
 
-    # Bullish Engulfing: First candle bearish, second candle bullish
-    if c1 < o1 and c2 > o2 and c1 > o2 and o1 < c2:
-        return {
-            "Suppourt": min(second.low_price, first.low_price),
-            "pattern": "Bullish Engulfing",
-            "time": second.date,
-            "period": period,
-        }
+    # Detect trend using channel slopes
+    lower_slope = channels.get("LowerChannelData", {}).get("Slope", 0) if channels else 0
+    upper_slope = channels.get("UpperChannelData", {}).get("Slope", 0) if channels else 0
 
-    # Bearish Engulfing: First candle bullish, second candle bearish
-    if c1 > o1 and c2 < o2 and c2 < o1 and o2 > c1:
-        return {
-            "Resistance": max(second.high_price, first.high_price),
-            "pattern": "Bearish Engulfing",
-            "time": second.date,
-            "period": period,
-        }
+    downtrend = lower_slope < 0 and upper_slope < 0
+    uptrend = lower_slope > 0 and upper_slope > 0
 
-    # Dark Cloud Cover: First candle bullish, second opens above and closes below midpoint of first body
-    midpoint = o1 + (c1 - o1) / 2
-    if c1 > o1 and o2 > c1 and c2 < midpoint and c2 > o1:
-        return {
-            "Resistance": max(second.high_price, first.high_price),
-            "pattern": "Dark Cloud Cover",
-            "time": second.date,
-            "period": period,
-        }
+    # Bullish reversal (downtrend)
+    if downtrend and (first.RSI < 30 or second.RSI < 30):
+        if c1 < o1 and c2 > o2 and c1 > o2 and o1 < c2:  # Engulfing
+            return {"Suppourt": min(second.low_price, first.low_price), "pattern": "Bullish Engulfing", "time": second.date, "period": period}
+        midpoint = o1 + (c1 - o1) / 2
+        if c1 < o1 and o2 < c1 and c2 > midpoint and c2 < o1:  # Piercing
+            return {"Suppourt": min(second.low_price, first.low_price), "pattern": "Piercing Pattern", "time": second.date, "period": period}
+        if second.low_price > first.high_price:  # Rising Window
+            return {"Suppourt": second.low_price, "pattern": "Rising Window", "time": second.date, "period": period}
 
-    # Piercing Pattern: First candle bearish, second opens below and closes above midpoint of first body
-    if c1 < o1 and o2 < c1 and c2 > midpoint and c2 < o1:
-        return {
-            "Suppourt": min(second.low_price, first.low_price),
-            "pattern": "Piercing Pattern",
-            "time": second.date,
-            "period": period,
-        }
-
-    # Rising Window (Gap Up): Second low is higher than first high
-    if second.low_price > first.high_price:
-        return {
-            "Suppourt": second.low_price,
-            "pattern": "Rising Window",
-            "time": second.date,
-            "period": period,
-        }
-
-    # Falling Window (Gap Down): Second high is lower than first low
-    if second.high_price < first.low_price:
-        return {
-            "Resistance": second.high_price,
-            "pattern": "Falling Window",
-            "time": second.date,
-            "period": period,
-        }
+    # Bearish reversal (uptrend)
+    if uptrend and (first.RSI > 70 or second.RSI > 70):
+        if c1 > o1 and c2 < o2 and c2 < o1 and o2 > c1:  # Engulfing
+            return {"Resistance": max(second.high_price, first.high_price), "pattern": "Bearish Engulfing", "time": second.date, "period": period}
+        midpoint = o1 + (c1 - o1) / 2
+        if c1 > o1 and o2 > c1 and c2 < midpoint and c2 > o1:  # Dark Cloud
+            return {"Resistance": max(second.high_price, first.high_price), "pattern": "Dark Cloud Cover", "time": second.date, "period": period}
+        if second.high_price < first.low_price:  # Falling Window
+            return {"Resistance": second.high_price, "pattern": "Falling Window", "time": second.date, "period": period}
 
     return None
-
 

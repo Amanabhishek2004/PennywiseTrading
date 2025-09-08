@@ -250,6 +250,7 @@ def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
         username=user_in.username,
         password=hash_password(user_in.password),
         name=user_in.name,
+        referralCode = secrets.token_hex(4),
         email=user_in.email,
         phonenumber=user_in.phonenumber,
         reads=0,
@@ -260,7 +261,14 @@ def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-
+    send_email(
+        to_email=new_user.email,
+        subject="Welcome to Pennywise!",
+        context={"name": new_user.name, "api_key": api_key , 
+                 "ref_code": new_user.referralCode , 
+                 "password" : user_in.password},
+        template_name="welcomeemailtemplate.html",
+    )
     usage_entry = ApiKeyUsage(
         id=str(uuid4()),
         user_id=new_user.id,

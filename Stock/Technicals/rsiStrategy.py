@@ -30,7 +30,7 @@ import numpy as np
 
 
 
-def CalculateRSI(ticker, db, period, price_data):
+def CalculateRSI(ticker, db, period, prices , rsi_values):
     from Database.models import Stock, StockTechnicals, PriceData
     import pandas as pd
 
@@ -39,29 +39,30 @@ def CalculateRSI(ticker, db, period, price_data):
         print(f"No stock named {ticker}")
         return
 
-    price_query = (
-        price_data
-        .filter(
-            PriceData.stock_id == stock.id,
-            PriceData.period == period
-        )
-        .order_by(PriceData.date.desc())
-        .all()
-    )
+    # price_query = (
+    #     price_data
+    #     .filter(
+    #         PriceData.stock_id == stock.id,
+    #         PriceData.period == period
+    #     )
+    #     .order_by(PriceData.date.desc())
+    #     .all()
+    # )
 
-    prices = pd.Series([p.close_price for p in price_query])
-    rsi_values = pd.Series([p.RSI for p in price_query])
+    # prices = pd.Series([p.close_price for p in price_query])
+    # rsi_values = pd.Series([p.RSI for p in price_query])
     
     if len(prices) < 14:
         print("Not enough data to calculate RSI.")
         return
-      
-    current_rsi = float(rsi_values.iloc[0])
+    print(rsi_values)  
+    current_rsi = float(rsi_values.iloc[-1])
+    
     if pd.isna(current_rsi):
         print("Unable to calculate RSI for the latest period.")
         return
-
-    valid_rsi = rsi_values[:21]
+    
+    valid_rsi = rsi_values[-20: ]
     if len(valid_rsi) < 2:
         print("Not enough data to calculate RSI trendline.")
         return

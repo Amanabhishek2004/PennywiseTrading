@@ -1880,14 +1880,38 @@ tickers = [
     "LAKPRE",
 ]
 # Loop through and post each ticker
-for ticker in tickers:
-    payload = {"tickers": [ticker]}
-    response = requests.post(url, json=payload)
+# for ticker in tickers:
+#     payload = {"tickers": [ticker]}
+#     response = requests.post(url, json=payload)
 
-    # Logging the result
-    print(f"Sent ticker: {ticker}, Status: {response.status_code}")
+#     # Logging the result
+#     print(f"Sent ticker: {ticker}, Status: {response.status_code}")
     # time.sleep(30)
 
+
+import requests
+
+API_KEY = "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"
+
+url = "https://api.openai.com/v1/chat/completions"
+
+headers = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json"
+}
+
+data = {
+    "model": "gpt-4o-mini",
+    "messages": [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Hello, how are you?"}
+    ]
+}
+
+response = requests.post(url, headers=headers, json=data)
+
+print(response.status_code)
+print(response.json())
 
 # "parameters": [
 #   {

@@ -9,7 +9,7 @@ from typing import List
 from Database.Schemas.StockSchema import *
 import math
 from Stock.Technicals.rsiStrategy import *
-from Stock.Technicals.SuppourtResistance import CreatepatternSuppourt , MakeStrongSupportResistance , IdentifyDoubleCandleStickPatterns , IdentifySingleCandleStickPattern
+from Stock.Technicals.SuppourtResistance import CreatepatternSuppourt , MakeStrongSupportResistance 
 from Database.Schemas.PriceSchema import *
 from Stock.Technicals.SignalGenerator import *
 from Stock.Technicals.DynamicSuppourtResistance import *
@@ -239,8 +239,8 @@ def GenerateBuySellSignals(
     if signal["RSI Signal"].get("rsipeak_min") and signal["RSI Signal"]["Rsi"] < 35:
         message = f"Buy at {currentprice} or {float(support.Price) if support else None}"
 
-    patterdata = IdentifyDoubleCandleStickPatterns(prices[-2:], period)
-    patterdata2 = IdentifySingleCandleStickPattern(prices[-1], period)
+    patterdata = None
+    patterdata2 = None
 
     # --- Helpers ---
     def to_py(val):

@@ -3,33 +3,33 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 from uuid import uuid4
 
-def CreateChannel(db, Ticker: str, timeperiod: int = 20, period: str = "1d" , price_data = list):
+def CreateChannel(db,data = None ,  Ticker: str = None, timeperiod: int = 20, period: str = "1d" , price_data = list):
     # Query the PriceData table for the specified ticker
     print(period)
     from Database.models import PriceData, Channel
-    price_data = (
-       price_data
-        .filter(PriceData.ticker == Ticker, PriceData.period == period)
-        .order_by(PriceData.date.desc()) 
-        .all()
-    )
-
-    # Validate data
-    if not price_data:
-        print(f"No data found for Ticker: {Ticker}")
-        return
-    # Convert to pandas DataFrame (reverse to ascending order for regression)
-    data = pd.DataFrame(
-        [
-            {
-                "date": record.date,
-                "close_price": record.close_price,
-                "high_price": record.high_price,
-                "low_price": record.low_price,
-            }
-            for record in price_data
-        ]
-    ).sort_values("date").reset_index(drop=True)
+    if data is None: 
+        price_data = (
+            db.query(PriceData)
+            .filter(PriceData.ticker == Ticker, PriceData.period == period)
+            .order_by(PriceData.date.desc())
+            .all()
+        )
+        # Validate data
+        if not price_data:
+            print(f"No data found for Ticker: {Ticker}")
+            return
+        # Convert to pandas DataFrame (reverse to ascending order for regression)
+        data = pd.DataFrame(
+            [
+                {
+                    "date": record.date,
+                    "close_price": record.close_price,
+                    "high_price": record.high_price,
+                    "low_price": record.low_price,
+                }
+                for record in price_data
+            ]
+        ).sort_values("date").reset_index(drop=True)
 
     print(len(data), timeperiod)
     # Ensure there are enough data points
@@ -91,7 +91,7 @@ def CreateUpperChannel(data, window):
     """
     Create an upper channel using rolling max over the latest 'window' rows.
     """
-    highs_rolling = data["high_price"].rolling(window=window).max()
+    highs_rolling = data["high_price"].rolling(window=10).max()
     highs = highs_rolling.dropna().values[-window:]  # last 'window' rolling max values
     x = np.arange(len(highs)).reshape(-1, 1)
     if len(highs) < 2:
@@ -106,7 +106,7 @@ def CreateLowerChannel(data, window):
     """
     Create a lower channel using rolling min over the latest 'window' rows.
     """
-    lows_rolling = data["low_price"].rolling(window=window).min()
+    lows_rolling = data["low_price"].rolling(window=10).min()
     lows = lows_rolling.dropna().values[-window:]  # last 'window' rolling min values
     x = np.arange(len(lows)).reshape(-1, 1)
     if len(lows) < 2:

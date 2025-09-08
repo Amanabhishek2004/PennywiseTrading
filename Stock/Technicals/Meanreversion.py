@@ -15,20 +15,21 @@ SUPABASE_URL = "https://uitfyfywxzaczubnecft.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpdGZ5Znl3eHphY3p1Ym5lY2Z0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MTQ1MjMzNiwiZXhwIjoyMDY3MDI4MzM2fQ.yjZ6UsGzO4F6VyU0q_HSUVrekFr9XGHazN9cd61nOZ8"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def CreateVolumeChannel(ticker: str, price_data, timeperiod: int = 30, period: str = "1d"):
+def CreateVolumeChannel(ticker: str, data, timeperiod: int = 20, period: str = "1d"):
     # Fetch price data from Supabase
-    price_data = price_data.limit(100).all()
-    if not price_data:
-        print("No Price Data")
-        return
+    # price_data = price_data.limit(100).all()
+    # if not price_data:
+    #     print("No Price Data")
+    #     return
 
-    data = pd.DataFrame([{
-        "OnbalanceVolume": p.OnbalanceVolume,
-        "date": p.date
-    } for p in price_data])
-
+    # data = pd.DataFrame([{
+    #     "OnbalanceVolume": p.OnbalanceVolume,
+    #     "date": p.date
+    # } for p in price_data])
+    print(len(data), timeperiod)
     if len(data) < timeperiod:
-        raise ValueError(f"Not enough data points to calculate channels for timeperiod: {timeperiod} , {period}")
+        print(f"Not enough data points to calculate channels for timeperiod: {timeperiod} , {period}")
+        return 
 
     # --- Scale OBV before passing to regression ---
     scaler = StandardScaler()
@@ -86,7 +87,7 @@ def CreateVolumeChannel(ticker: str, price_data, timeperiod: int = 30, period: s
 def CreateUpperChannel(data, window, scaled=False):
     """Create an upper channel using rolling max."""
     col = "OnbalanceVolume_scaled" if scaled else "OnbalanceVolume"
-    highwindow = data[col].rolling(window=window).max().dropna()
+    highwindow = data[col].rolling(window=10).max().dropna()
 
     y = highwindow.values
     x = np.arange(len(y)).reshape(-1, 1)
@@ -100,7 +101,7 @@ def CreateUpperChannel(data, window, scaled=False):
 def CreateLowerChannel(data, window, scaled=False):
     """Create a lower channel using rolling min."""
     col = "OnbalanceVolume_scaled" if scaled else "OnbalanceVolume"
-    lowwindow = data[col].rolling(window=window).min().dropna()
+    lowwindow = data[col].rolling(window=10).min().dropna()
 
     y = lowwindow.values
     x = np.arange(len(y)).reshape(-1, 1)

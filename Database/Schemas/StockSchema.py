@@ -38,6 +38,7 @@ class EarningMetricSchema(BaseModel):
     EBIT_cagr: Optional[float]
     GrossProfit: Optional[str]
     NetProfitMargin : Optional[str]
+    RoeYearly : Optional[str]
     EBITDA: Optional[str]
     EBITDA_cagr: Optional[float]
     OperatingRevenue_Cagr: Optional[float]
