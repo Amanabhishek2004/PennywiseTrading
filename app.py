@@ -34,20 +34,13 @@ app.include_router(UserAccountRoutes.router)
  
 
 
-origins = [
-    "http://localhost:5173",  # React dev server
-    "http://localhost:5174",  # React dev server
-    "http://127.0.0.1:3000",  # Alternative localhost
-    "https://your-frontend-domain.com"  # Your production frontend 
-    ,"https://frontend-g1b4.vercel.app/"
-]
 
 
 event.listen(StockTechnicals, "after_update", create_alert_on_stock_update)
 # Add CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Allowed origins
+    allow_origins=["*"],  # Allowed origins
     allow_credentials=True,  # Allow cookies for cross-origin requests
     allow_methods=["*"],  # HTTP methods (GET, POST, etc.)
     allow_headers=["*"],  # HTTP headers
