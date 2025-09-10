@@ -38,7 +38,8 @@ origins = [
     "http://localhost:5173",  # React dev server
     "http://localhost:5174",  # React dev server
     "http://127.0.0.1:3000",  # Alternative localhost
-    "https://your-frontend-domain.com"  # Your production frontend
+    "https://your-frontend-domain.com"  # Your production frontend 
+    ,"https://frontend-g1b4.vercel.app/"
 ]
 
 

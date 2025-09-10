@@ -55,7 +55,9 @@ def CalculateRSI(ticker, db, period, prices , rsi_values):
     if len(prices) < 14:
         print("Not enough data to calculate RSI.")
         return
-    print(rsi_values)  
+    if len(rsi_values) == 0 : 
+        return 
+
     current_rsi = float(rsi_values.iloc[-1])
     
     if pd.isna(current_rsi):
