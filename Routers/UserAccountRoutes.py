@@ -211,6 +211,7 @@ class UserCreate(BaseModel):
     name: str
     email: EmailStr
     phonenumber: str
+    emailotp: int
 
 
 class TokenOut(BaseModel):
@@ -252,6 +253,7 @@ def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
         name=user_in.name,
         referralCode = secrets.token_hex(4),
         email=user_in.email,
+        emailotp = user_in.emailotp, 
         phonenumber=user_in.phonenumber,
         reads=0,
         Dataused=0.0,
@@ -549,3 +551,17 @@ def add_multiple_subscriptions(
 
     return {"message": "All subscriptions processed successfully.", "data": result}
 
+class VerificationSchem(BaseModel) :
+    otp:int
+    email:str
+
+
+@router.post("/send-mail")
+def SendOtp(data: VerificationSchem):
+    send_email(
+        to_email=data.email,
+        subject="Your OTP Code",
+        context={"otp": data.otp},
+        template_name="otp_email.html"   # <-- Now template is used
+    )
+    return {"message": f"OTP sent to {data.email}"}

@@ -34,8 +34,6 @@ app.include_router(UserAccountRoutes.router)
  
 
 
-
-
 event.listen(StockTechnicals, "after_update", create_alert_on_stock_update)
 # Add CORS Middleware
 app.add_middleware(
@@ -103,3 +101,5 @@ async def get_portfolio_returns(request: PortfolioRequest ,current_user: User = 
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+

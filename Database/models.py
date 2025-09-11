@@ -117,7 +117,8 @@ class User(Base):
     AuthToken = Column(String, unique=True, index=True)
     lastloggedin = Column(String , nullable = True) 
     Status = Column(Integer , default=0) 
-
+    emailotp = Column(Integer)
+    mobile_otp = Column(Integer , default = 0)
     watchlist = relationship(
         "Stock",
         secondary=watchlist_table,
