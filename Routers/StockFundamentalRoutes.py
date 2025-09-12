@@ -16,7 +16,7 @@ from Database.Schemas.StockFundamentalRoutesSchema import (
 )
 from Routers.UserAccountRoutes import get_current_user
 from Stock.Fundametals.StockScreener import create_financial_score , create_technical_score
-from Database.Schemas.StockScreenerSchema  import StockScoresResponse
+from Database.Schemas.StockScreenerSchema  import  *
 
 
 
@@ -263,6 +263,7 @@ def get_days(
     return response
 
 from Stock.Fundametals.StockScreener import * 
+
 import math
 
 def replace_nan_with_none(obj):
@@ -285,20 +286,42 @@ def get_all_screening_scores(
 ):
     stock = db.query(Stock).filter(Stock.Ticker == ticker).first()
     if not stock:
-        return {"detail": f"Ticker {ticker} not found"}
+        raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found")
 
-    # Create/update scores
-    financial_score = create_financial_score(stock, db)
-    technical_scores = create_technical_score(stock, db)
+    # --- Create/Update scores ---
+    create_financial_score(stock, db)
+    create_technical_score(stock, db)
 
-    # Update stock fields
-    stock.FinancialScore = float(financial_score.total_score)
-    stock.TechnicalIntradayScore = next((ts.total_score for ts in technical_scores if ts.period == "1m"), 0.0)
-    stock.TechnicalDailyScore = next((ts.total_score for ts in technical_scores if ts.period == "1d"), 0.0)
+    # --- Re-fetch scores from DB so only native types go into response ---
+    financial_score = (
+        db.query(StockFinancialScore)
+        .filter(StockFinancialScore.stock_id == stock.id)
+        .first()
+    )
+    technical_scores = (
+        db.query(StockTechnicalScore)
+        .filter(StockTechnicalScore.stock_id == stock.id)
+        .all()
+    )
+
+    # --- Update stock summary fields ---
+    stock.FinancialScore = float(financial_score.total_score) if financial_score else None
+    stock.TechnicalIntradayScore = next(
+        (ts.total_score for ts in technical_scores if ts.period == "1m"), None
+    )
+    stock.TechnicalDailyScore = next(
+        (ts.total_score for ts in technical_scores if ts.period == "1d"), None
+    )
     db.commit()
 
+    # --- Let Pydantic schemas handle serialization ---
     return StockScoresResponse(
         ticker=stock.Ticker,
-        financial_score=financial_score,
-        technical_scores=technical_scores,
+        financial_score=(
+            StockFinancialScoreSchema.model_validate(financial_score)
+            if financial_score else None
+        ),
+        technical_scores=[
+            StockTechnicalScoreSchema.model_validate(ts) for ts in technical_scores
+        ],
     )
