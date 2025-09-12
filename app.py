@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import event
 from Routers.UserAccountRoutes import  get_current_user
 from AIPrompts import Financial
+from scipy.stats import gaussian_kde
 # from D.models import StockTechnicals  # or the model you want to listen to
 
 
@@ -103,3 +104,47 @@ async def get_portfolio_returns(request: PortfolioRequest ,current_user: User = 
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/price-kde/1d" ,  tags = ["Portfolio Details And Correlation"])
+def get_price_and_return_kde(
+    request: PortfolioRequest, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)
+):
+    """
+    Get KDE curves of prices and returns for the last 1 day for multiple tickers.
+    """
+    response = {}
+
+    for ticker in request.stocks:
+        # Last 1 day of price data
+        prices = (
+            db.query(PriceData)
+            .filter(PriceData.ticker == ticker)
+            .filter(PriceData.period == "1d")
+            .order_by(PriceData.date.asc())
+            .all()
+        )
+
+        if len(prices) < 2:
+            response[ticker] = {"error": "Not enough price data to calculate KDE"}
+            continue
+
+        # Extract close prices
+        closes = np.array([p.close_price for p in prices])
+
+        # --- KDE for Prices ---
+        kde_prices = gaussian_kde(closes)
+        x_prices = np.linspace(closes.min(), closes.max(), 200)
+        y_prices = kde_prices(x_prices)
+
+        # --- KDE for Returns ---
+        returns = np.diff(np.log(closes))  # log returns
+        kde_returns = gaussian_kde(returns)
+        x_returns = np.linspace(returns.min(), returns.max(), 200)
+        y_returns = kde_returns(x_returns)
+
+        # Store results per ticker
+        response[ticker] = {
+            "prices": {"x": x_prices.tolist(), "y": y_prices.tolist()},
+            "returns": {"x": x_returns.tolist(), "y": y_returns.tolist()},
+        }
+
+    return response
