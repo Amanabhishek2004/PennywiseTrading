@@ -164,8 +164,8 @@ def CheckForfinancialApiPlan(
 ):
     adminusers = ["amanabhishek2004", "Naitik"]
     apiplan = db.query(Plan).filter(Plan.id == "1").first()
-
-    if apiplan or current_user.username in adminusers:
+        
+    if apiplan or current_user.username in adminusers :
         return apiplan
 
     else:
@@ -192,17 +192,20 @@ def CheckForTechnicalApiPlan(
 def verify_premium_access(
     apikey: str,
     db: Session = Depends(get_db),
-    expiredplans: list[Plan] = Depends(CheckForPremiumExpiry),
-    utilizedplan: Plan = Depends(CheckForfinancialApiPlan),
 ):
-    # Check if apikey belongs to a user
+    # Check if apikey belongs to a user or is admin
     apikey_record = db.query(ApiKeyUsage).filter(ApiKeyUsage.apikey == apikey).first()
 
     if not apikey_record and apikey not in ADMINAPIKEY:
         raise HTTPException(status_code=403, detail="Invalid API key")
 
-    if utilizedplan in expiredplans and apikey not in ADMINAPIKEY:
-        raise HTTPException(status_code=403, detail="Your premium plan has expired.")
+    # If not admin, then check plans
+    if apikey not in ADMINAPIKEY:
+        expiredplans = CheckForPremiumExpiry(db=db, apikey=apikey)
+        utilizedplan = CheckForfinancialApiPlan(db=db, apikey=apikey)
+
+        if utilizedplan in expiredplans:
+            raise HTTPException(status_code=403, detail="Your premium plan has expired.")
 
 
 class UserCreate(BaseModel):
