@@ -16,15 +16,25 @@ from Stock.Fundametals.StockForwardRatios import *
 from Stock.Fundametals.StockReturnsCalculation import *
 from Routers import StockRouters , ComparisonRouters , AdminRouter , TechnicalRoutes , UserAccountRoutes
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import ORJSONResponse
 from sqlalchemy import event
 from Routers.UserAccountRoutes import  get_current_user
 from AIPrompts import Financial
 from scipy.stats import gaussian_kde
 # from D.models import StockTechnicals  # or the model you want to listen to
 
+class NumpyJSONResponse(ORJSONResponse):
+    def render(self, content) -> bytes:
+        def default(obj):
+            if isinstance(obj, (np.generic,)):
+                return obj.item()
+            if isinstance(obj, (np.ndarray,)):
+                return obj.tolist()
+            return str(obj)
+        return ORJSONResponse.render(self, content)
 
- 
-app = FastAPI()
+
+app = FastAPI(default_response_class=NumpyJSONResponse)
 app.include_router(Financial.router)
 app.include_router(StockRouters.router)
 app.include_router(ComparisonRouters.router)
