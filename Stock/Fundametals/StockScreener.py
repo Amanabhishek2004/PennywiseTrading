@@ -1,14 +1,23 @@
-from Database.models import Stock, StockTechnicals , SupportData , StockFinancialScore ,StockTechnicalScore
-import numpy as np 
+from Database.models import Stock, StockTechnicals, SupportData, StockFinancialScore, StockTechnicalScore
+import numpy as np
+
+
+# --- Utility functions ---
 def convert_to_list(data_string):
     if data_string is None:
         return []
 
-    if isinstance(data_string, (int, float)):
+    if isinstance(data_string, (int, float, np.generic)):
         return [float(data_string)]
 
     elif isinstance(data_string, str):
-        cleaned_data = data_string.strip().replace("[", "").replace("]", "").replace("'", "").replace("%", "")
+        cleaned_data = (
+            data_string.strip()
+            .replace("[", "")
+            .replace("]", "")
+            .replace("'", "")
+            .replace("%", "")
+        )
         elements = cleaned_data.split(",")
         result = []
 
@@ -27,16 +36,23 @@ def convert_to_list(data_string):
         return []
 
 
-import numpy as np
 def clamp(value, min_value, max_value):
     return max(min_value, min(value, max_value))
 
 
+def sanitize_record(record: dict):
+    """Convert any numpy scalars to native Python floats/ints before DB insert"""
+    return {
+        k: (v.item() if isinstance(v, np.generic) else v)
+        for k, v in record.items()
+    }
+
+
+# --- Financial Score ---
 def create_financial_score(stock: Stock, db):
     """
     Compute detailed financial scores for each metric and insert into StockFinancialScore table.
     """
-
     scores = {}
     total_score = 0
 
@@ -45,10 +61,14 @@ def create_financial_score(stock: Stock, db):
         ratios = stock.comparables[0]
 
         if ratios.trailingPE is not None:
-            scores["trailingPE_score"] = clamp((20 - min(ratios.trailingPE, 20)) * 10, -50, 50)
+            scores["trailingPE_score"] = clamp(
+                (20 - min(ratios.trailingPE, 20)) * 10, -50, 50
+            )
 
         if ratios.forwardPE is not None and ratios.trailingPE is not None:
-            scores["forwardPE_score"] = clamp((ratios.trailingPE - ratios.forwardPE) * 10, -50, 50)
+            scores["forwardPE_score"] = clamp(
+                (ratios.trailingPE - ratios.forwardPE) * 10, -50, 50
+            )
 
         if ratios.peg is not None:
             scores["peg_score"] = clamp((1 - ratios.peg) * 100, -50, 50)
@@ -57,13 +77,17 @@ def create_financial_score(stock: Stock, db):
             scores["EVEBITDA_score"] = clamp((10 - ratios.EVEBITDA) * 10, -50, 50)
 
         if ratios.medianpe is not None and ratios.trailingPE is not None:
-            scores["medianpe_score"] = clamp((ratios.medianpe - ratios.trailingPE) * 10, -50, 50)
+            scores["medianpe_score"] = clamp(
+                (ratios.medianpe - ratios.trailingPE) * 10, -50, 50
+            )
 
         if ratios.pricetoSales is not None:
             scores["pricetoSales_score"] = clamp((20 - ratios.pricetoSales) * 10, -50, 50)
 
         if ratios.pricetoFreeCashFlow is not None:
-            scores["pricetoFreeCashFlow_score"] = clamp((10 - ratios.pricetoFreeCashFlow) * 10, -50, 50)
+            scores["pricetoFreeCashFlow_score"] = clamp(
+                (10 - ratios.pricetoFreeCashFlow) * 10, -50, 50
+            )
 
         if ratios.FCFF_Yield is not None:
             scores["FCFF_Yield_score"] = clamp(ratios.FCFF_Yield * 100, -50, 50)
@@ -76,16 +100,24 @@ def create_financial_score(stock: Stock, db):
 
         # Growth metrics
         if ratios.Avg_Sales_QoQ_Growth_Percent is not None:
-            scores["Avg_Sales_QoQ_Growth_Percent_score"] = clamp(ratios.Avg_Sales_QoQ_Growth_Percent, -50, 50)
+            scores["Avg_Sales_QoQ_Growth_Percent_score"] = clamp(
+                ratios.Avg_Sales_QoQ_Growth_Percent, -50, 50
+            )
 
         if ratios.Avg_NetProfit_QoQ_Growth_Percent is not None:
-            scores["Avg_NetProfit_QoQ_Growth_Percent_score"] = clamp(ratios.Avg_NetProfit_QoQ_Growth_Percent, -50, 50)
+            scores["Avg_NetProfit_QoQ_Growth_Percent_score"] = clamp(
+                ratios.Avg_NetProfit_QoQ_Growth_Percent, -50, 50
+            )
 
         if ratios.Avg_OperatingProfit_QoQ_Growth_Percent is not None:
-            scores["Avg_OperatingProfit_QoQ_Growth_Percent_score"] = clamp(ratios.Avg_OperatingProfit_QoQ_Growth_Percent, -50, 50)
+            scores["Avg_OperatingProfit_QoQ_Growth_Percent_score"] = clamp(
+                ratios.Avg_OperatingProfit_QoQ_Growth_Percent, -50, 50
+            )
 
         if ratios.Avg_EPS_QoQ_Growth_Percent is not None:
-            scores["Avg_EPS_QoQ_Growth_Percent_score"] = clamp(ratios.Avg_EPS_QoQ_Growth_Percent, -50, 50)
+            scores["Avg_EPS_QoQ_Growth_Percent_score"] = clamp(
+                ratios.Avg_EPS_QoQ_Growth_Percent, -50, 50
+            )
 
     # ========== Earning Metrics ==========
     if stock.earning_metrics:
@@ -98,7 +130,9 @@ def create_financial_score(stock: Stock, db):
             scores["EBITDA_cagr_score"] = clamp(em.EBITDA_cagr * 100, -50, 50)
 
         if em.OperatingRevenue_Cagr is not None:
-            scores["OperatingRevenue_Cagr_score"] = clamp(em.OperatingRevenue_Cagr * 100, -50, 50)
+            scores["OperatingRevenue_Cagr_score"] = clamp(
+                em.OperatingRevenue_Cagr * 100, -50, 50
+            )
 
         if em.NetIncome_cagr is not None:
             scores["NetIncome_cagr_score"] = clamp(em.NetIncome_cagr * 100, -50, 50)
@@ -108,13 +142,17 @@ def create_financial_score(stock: Stock, db):
 
         try:
             if em.operatingMargins is not None:
-                scores["operatingMargins_score"] = clamp(float(em.operatingMargins) * 100, -10, 10)
+                scores["operatingMargins_score"] = clamp(
+                    float(em.operatingMargins) * 100, -10, 10
+                )
         except:
             pass
 
         try:
             if em.epsTrailingTwelveMonths is not None:
-                scores["epsTrailingTwelveMonths_score"] = clamp(float(em.epsTrailingTwelveMonths), -10, 10)
+                scores["epsTrailingTwelveMonths_score"] = clamp(
+                    float(em.epsTrailingTwelveMonths), -10, 10
+                )
         except:
             pass
 
@@ -151,24 +189,33 @@ def create_financial_score(stock: Stock, db):
         expenses = stock.expenses[0]
 
         if expenses.Operating_Expense is not None:
-            scores["operatingExpense_score"] = 0 
+            scores["operatingExpense_score"] = 0
         if expenses.InterestExpense_cagr is not None:
-            scores["Intrest_Expense_score"] = clamp((-expenses.InterestExpense_cagr + em.OperatingRevenue_Cagr) * 100, -50, 50)
+            scores["Intrest_Expense_score"] = clamp(
+                (-expenses.InterestExpense_cagr + em.OperatingRevenue_Cagr) * 100,
+                -50,
+                50,
+            )
 
         if expenses.CurrentDebt_cagr is not None:
-            scores["CurrentDebt_cagr_score"] = clamp((-expenses.CurrentDebt_cagr + em.OperatingRevenue_Cagr) * 100, -50, 50)
+            scores["CurrentDebt_cagr_score"] = clamp(
+                (-expenses.CurrentDebt_cagr + em.OperatingRevenue_Cagr) * 100, -50, 50
+            )
 
     # Sum all non-None scores for total
     total_score = round(sum([v for v in scores.values() if v is not None]), 2)
 
     # Create StockFinancialScore object
-    existingscore = db.query(StockFinancialScore).filter(StockFinancialScore.stock_id == stock.id).first()
+    existingscore = (
+        db.query(StockFinancialScore).filter(StockFinancialScore.stock_id == stock.id).first()
+    )
     if existingscore:
-      db.delete(existingscore)
+        db.delete(existingscore)
+
     financial_score_entry = StockFinancialScore(
         stock_id=stock.id,
         total_score=total_score,
-        **scores
+        **sanitize_record(scores),
     )
 
     db.add(financial_score_entry)
@@ -178,11 +225,11 @@ def create_financial_score(stock: Stock, db):
     return financial_score_entry
 
 
+# --- Technical Score ---
 def create_technical_score(stock: Stock, db, max_total_score=100):
     """
     Compute detailed technical scores for each period and insert into StockTechnicalScores table.
     """
-
     results = []
     tech_map = {t.period: t for t in stock.technicals}
     channel_map = {c.period: c for c in stock.channels}
@@ -197,30 +244,39 @@ def create_technical_score(stock: Stock, db, max_total_score=100):
             "VolumeUpperChannelSlope_score": None,
             "VolumeLowerChannelSlope_score": None,
             "ChannelUpperSlope_score": None,
-            "ChannelLowerSlope_score": None
+            "ChannelLowerSlope_score": None,
         }
 
         channel = channel_map.get(period)
 
         # ----- Nearest support/resistance -----
-        currentsupport = db.query(SupportData).filter(
-            SupportData.stock_id == stock.id,
-            SupportData.period == period,
-            SupportData.Price <= stock.CurrentPrice
-        ).order_by(SupportData.Price.desc()).first()
+        currentsupport = (
+            db.query(SupportData)
+            .filter(
+                SupportData.stock_id == stock.id,
+                SupportData.period == period,
+                SupportData.Price <= stock.CurrentPrice,
+            )
+            .order_by(SupportData.Price.desc())
+            .first()
+        )
 
-        currentresistance = db.query(SupportData).filter(
-            SupportData.stock_id == stock.id,
-            SupportData.period == period,
-            SupportData.Price >= stock.CurrentPrice
-        ).order_by(SupportData.Price.asc()).first()
-          
+        currentresistance = (
+            db.query(SupportData)
+            .filter(
+                SupportData.stock_id == stock.id,
+                SupportData.period == period,
+                SupportData.Price >= stock.CurrentPrice,
+            )
+            .order_by(SupportData.Price.asc())
+            .first()
+        )
+
         # ----- RSI Divergence -----
-
         if tech.RsiSlope is not None and channel.upper_channel_slope is not None:
             divergence = tech.RsiSlope - channel.upper_channel_slope
             div_score = np.clip(divergence * 100, -100, 100)
-            component_scores["RsiSlope_score"] = div_score * 0.4
+            component_scores["RsiSlope_score"] = float(div_score * 0.4)
             score += component_scores["RsiSlope_score"]
 
         # ----- Raw RSI -----
@@ -231,7 +287,7 @@ def create_technical_score(stock: Stock, db, max_total_score=100):
                 rsi_score = np.interp(tech.CurrentRsi, [70, 90], [40, 0])
             else:
                 rsi_score = 70
-            component_scores["CurrentRsi_score"] = rsi_score * 0.2
+            component_scores["CurrentRsi_score"] = float(rsi_score * 0.2)
             score += component_scores["CurrentRsi_score"]
 
         # ----- Resistance proximity -----
@@ -241,7 +297,7 @@ def create_technical_score(stock: Stock, db, max_total_score=100):
                 dist = abs(stock.CurrentPrice - currentresistance.Price) / currentresistance.Price
                 if dist < 0.05:
                     resistance_touch = True
-                    component_scores["ResistanceProximity_score"] = 25 * (1 - dist / 0.05)
+                    component_scores["ResistanceProximity_score"] = float(25 * (1 - dist / 0.05))
                     score += component_scores["ResistanceProximity_score"]
             except:
                 pass
@@ -253,7 +309,7 @@ def create_technical_score(stock: Stock, db, max_total_score=100):
                 dist = abs(stock.CurrentPrice - currentsupport.Price) / currentsupport.Price
                 if dist < 0.05:
                     support_touch = True
-                    component_scores["SupportProximity_score"] = 25 * (1 - dist / 0.05)
+                    component_scores["SupportProximity_score"] = float(25 * (1 - dist / 0.05))
                     score += component_scores["SupportProximity_score"]
             except:
                 pass
@@ -270,24 +326,33 @@ def create_technical_score(stock: Stock, db, max_total_score=100):
             diff_up = tech.VolumeUpperChannelSlope - channel.upper_channel_slope
             diff_down = tech.VolumeLowerChannelSlope - channel.lower_channel_slope
             vol_score = np.clip((diff_up + diff_down) / 2, -1, 1) * 15
-            component_scores["VolumeUpperChannelSlope_score"] = (- channel.upper_channel_slope  + tech.VolumeUpperChannelSlope) *100
-            component_scores["VolumeLowerChannelSlope_score"] = ( - channel.lower_channel_slope + tech.VolumeLowerChannelSlope)*100
-            component_scores["ChannelUpperSlope_score"] = channel.upper_channel_slope * 100
-            component_scores["ChannelLowerSlope_score"] = channel.lower_channel_slope *100
+            component_scores["VolumeUpperChannelSlope_score"] = float(
+                (-channel.upper_channel_slope + tech.VolumeUpperChannelSlope) * 100
+            )
+            component_scores["VolumeLowerChannelSlope_score"] = float(
+                (-channel.lower_channel_slope + tech.VolumeLowerChannelSlope) * 100
+            )
+            component_scores["ChannelUpperSlope_score"] = float(channel.upper_channel_slope * 100)
+            component_scores["ChannelLowerSlope_score"] = float(channel.lower_channel_slope * 100)
             score += vol_score
 
         # ----- Cap total -----
         score = np.clip(score, 0, max_total_score)
 
         # ----- Save entry -----
-        if db.query(StockTechnicalScore).filter(StockTechnicalScore.stock_id == stock.id, StockTechnicalScore.period == period).first():
-            db.query(StockTechnicalScore).filter(StockTechnicalScore.stock_id == stock.id, StockTechnicalScore.period == period).delete() 
-             
+        existing = (
+            db.query(StockTechnicalScore)
+            .filter(StockTechnicalScore.stock_id == stock.id, StockTechnicalScore.period == period)
+            .first()
+        )
+        if existing:
+            db.delete(existing)
+
         technical_score_entry = StockTechnicalScore(
             stock_id=stock.id,
             period=period,
-            total_score=round(score, 2),
-            **component_scores
+            total_score=float(round(score, 2)),
+            **sanitize_record(component_scores),
         )
 
         db.add(technical_score_entry)
